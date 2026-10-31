@@ -309,9 +309,11 @@ vec3 computeSpatialWarp(vec3 p) {
 
 // Dedicated Outer Glass SDF (Zero per-blob trig!)
 float mapGlassOnly(vec3 p) {
-    // Fast Z bounding slab check when far from the scene plane
-    if (abs(p.z) > 0.72) {
-        return abs(p.z) - 0.52;
+    // Fast 3D bounding box check: skips the 16-blob loop completely when ray is outside the blob cluster!
+    vec3 boxD = abs(p) - vec3(0.82, 1.08, 0.56);
+    float dBox = max(boxD.x, max(boxD.y, boxD.z));
+    if (dBox > 0.06) {
+        return dBox;
     }
 
     float dGlass = 1e5;
@@ -546,8 +548,8 @@ vec3 sampleBackgroundWithDOF(vec2 uv, vec2 screenUv, bool includeBackText) {
     float glowStrength = mix(0.45, 0.82, smoothstep(0.05, 0.40, glowLum));
     vec3 bg = mix(effectiveTop, uBgGlowColor, clamp(glow * glowStrength, 0.0, 1.0));
 
-    // 2. Out-of-focus (DOF blurred) diagonal background rock ridge
-    if (uRockEnabled > 0.5) {
+    // 2. Out-of-focus (DOF blurred) diagonal background rock ridge (bounded to rock Y-band for speed)
+    if (uRockEnabled > 0.5 && uv.y < uRockHeight + 0.22) {
         float dx = uv.x - 0.15;
         float bgRidgeProfile = (uRockHeight + 0.105)
                              + 0.35 * min(dx, 0.0)
@@ -960,20 +962,21 @@ void main() {
     vec3 ro = vec3(0.0, 0.0, 2.50);
     vec3 rd = normalize(vec3(uv, -2.50));
 
-    // 1. Primary Raymarch: Outer Glass Shell vs. Foreground Chipped Volcanic Rock
-    float t = 0.0;
-    float tPrev = 0.0;
+    // 1. Primary Raymarch: Start directly at front of scene Z-slab (z = 0.62) and end at back (z = -0.68)
+    float invRdZ = 1.0 / max(-rd.z, 0.2);
+    float t = max(0.0, (2.50 - 0.62) * invRdZ);
+    float tPrev = t;
     float dPrev = 0.0;
-    float tMax = 4.2;
+    float tMax = (2.50 + 0.68) * invRdZ;
     int hitType = 0; // 0 = Background, 1 = Glass Blob, 2 = Rock
 
-    for (int i = 0; i < 96; i++) {
+    for (int i = 0; i < 56; i++) {
         vec3 p = ro + rd * t;
         float dG = mapGlassOnly(p);
         float dR = mapRock(p);
         float d = min(dG, dR);
 
-        if (d < 0.0009) {
+        if (d < 0.0010) {
             // 1-step secant surface refinement for ultra-smooth silhouette & normal precision
             if (i > 0 && (dPrev - d) > 1e-5) {
                 t = mix(tPrev, t, clamp(dPrev / (dPrev - d), 0.0, 1.0));
@@ -983,13 +986,15 @@ void main() {
         }
         tPrev = t;
         dPrev = d;
-        t += d * 0.78;
+        t += d * 0.86;
         if (t > tMax) break;
     }
 
-    vec3 finalColor = sampleBackgroundWithDOF(uv, screenUv, true);
+    vec3 finalColor = vec3(0.0);
 
-    if (hitType == 2) {
+    if (hitType == 0) {
+        finalColor = sampleBackgroundWithDOF(uv, screenUv, true);
+    } else if (hitType == 2) {
         vec3 pRock = ro + rd * t;
         vec3 nRock = calcNormalRock(pRock);
         finalColor = shadeRock(pRock, rd, nRock);
@@ -1024,7 +1029,7 @@ void main() {
         float tInPrev = tIn;
         float dGrPrev = 1e5;
 
-        for (int j = 0; j < 64; j++) {
+        for (int j = 0; j < 40; j++) {
             vec3 pIn = pEnter + rdIn * tIn;
             vec3 dAll = mapBlobsFull(pIn);
             float dGOut = dAll.x;
@@ -1036,7 +1041,7 @@ void main() {
                 minGreenDist = min(minGreenDist, max(dGr, dCh));
             }
 
-            if (dGr < 0.0012) {
+            if (dGr < 0.0014) {
                 if (j > 0 && (dGrPrev - dGr) > 1e-5) {
                     tHitIn = mix(tInPrev, tIn, clamp(dGrPrev / (dGrPrev - dGr), 0.0, 1.0));
                 } else {
@@ -1059,15 +1064,17 @@ void main() {
 
             tInPrev = tIn;
             dGrPrev = dGr;
-            float stepLen = max(min(max(-dGOut, 0.028), dGr) * 0.72, 0.005);
+            float stepLen = max(min(max(-dGOut, 0.032), dGr) * 0.82, 0.006);
             tIn += stepLen;
             glassThickness = tIn;
-            if (tIn > 1.6) break;
+            if (tIn > 1.35) break;
         }
 
         // Crisp 3D parallax micro-bubbles suspended inside the glass volume
-        float glassBubbles = sparkleMicroBubbles(pGlass + rdIn * 0.05, uBubbleDensity)
-                           + sparkleMicroBubbles(pGlass + rdIn * 0.13, uBubbleDensity * 0.95) * 0.85;
+        float glassBubbles = (uBubbleDensity > 0.01)
+            ? (sparkleMicroBubbles(pGlass + rdIn * 0.05, uBubbleDensity)
+             + sparkleMicroBubbles(pGlass + rdIn * 0.13, uBubbleDensity * 0.95) * 0.85)
+            : 0.0;
 
         // Hue-adaptive caustic tint derived 100% from uGreenColor
         float maxCh = max(max(uGreenColor.r, uGreenColor.g), max(uGreenColor.b, 0.001));
@@ -1087,7 +1094,6 @@ void main() {
         vec3 cleanBackdrop = mix(effTop, uBgGlowColor, clamp(glowRefr * glowStr, 0.0, 1.0));
         float bgLum = dot(cleanBackdrop, vec3(0.299, 0.587, 0.114));
         float isLightBg = smoothstep(0.02, 0.30, bgLum);
-        vec3 refrBg = mix(sampleBackgroundWithDOF(refrUv, refrScreenUv, false), cleanBackdrop, isLightBg * 0.88);
 
         vec3 interiorColor = vec3(0.0);
 
@@ -1098,10 +1104,13 @@ void main() {
             vec3 coreCol = shadeGreenCore(pGr, rdIn, nGr, dChAtHit);
             // Smooth grazing silhouette anti-aliasing where the internal core curves away into clear glass
             float coreGrazingAA = smoothstep(0.02, 0.22, max(dot(nGr, -rdIn), 0.0));
-            vec3 edgeCaustic = mix(refrBg * 0.85 + vec3(0.0004, 0.0006, 0.0004), causticTint * 0.75, 0.72);
+            vec3 edgeCaustic = mix(cleanBackdrop * 0.85 + vec3(0.0004, 0.0006, 0.0004), causticTint * 0.75, 0.72);
             interiorColor = mix(edgeCaustic, coreCol, coreGrazingAA);
             interiorColor += vec3(0.95, 1.0, 0.94) * glassBubbles * 0.40;
         } else {
+            vec3 refrBg = (isLightBg > 0.85)
+                ? cleanBackdrop
+                : mix(sampleBackgroundWithDOF(refrUv, refrScreenUv, false), cleanBackdrop, isLightBg * 0.88);
             // 2. Unified Refractive Glass & Circular Window Interior:
             //    On dark backgrounds (refrBg ~ 0), stays deep Octane black;
             //    On light/colored backgrounds, transmits bright, crystal-clear refracted studio backdrop!

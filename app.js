@@ -26,7 +26,9 @@ class MotionBlobStudio {
         // Studio State
         this.currentPresetId = 'reference';
         this.aspect = '9:16';
-        this.renderScale = 1.0;
+        this.renderScale = 0.75;
+        this.lastTimelineUiTime = 0;
+        this.lastHudUploadTime = 0;
         this.blobFilter = 'all';
         this.params = {};
         this.blobs = [];
@@ -772,17 +774,18 @@ class MotionBlobStudio {
         ctx.restore();
     }
 
-    updateTypographyTextures() {
+    updateTypographyTextures(forExport = false) {
         const w = this.textBackCanvas.width;
         const h = this.textBackCanvas.height;
         if (!w || !h) return;
 
         const hudActive = !!(this.hudConfig && this.hudConfig.enabled);
         const textActive = !!this.textConfig.visible;
+        const bakeFrontHudToTex = this.isRecording || forExport;
 
         const needBack = (hudActive && (this.hudConfig.depth === 'behind' || this.hudConfig.depth === 'mixed')) ||
                          (textActive && this.textConfig.depth === 'behind');
-        const needFront = (hudActive && (this.hudConfig.depth === 'front' || this.hudConfig.depth === 'mixed')) ||
+        const needFront = (bakeFrontHudToTex && hudActive && (this.hudConfig.depth === 'front' || this.hudConfig.depth === 'mixed')) ||
                           (textActive && this.textConfig.depth === 'front');
 
         if (needBack || this.typographyDirty) {
@@ -793,15 +796,20 @@ class MotionBlobStudio {
         }
 
         // 1. Render Motion-Tracking HUD Greebles onto Back and/or Front layers
+        //    During interactive preview (!bakeFrontHudToTex), front HUD is drawn directly on gizmoCanvas (0 gl.texImage2D uploads!)
         if (hudActive) {
             if (this.hudConfig.depth === 'behind') {
                 this.renderHudGreebles(this.textBackCtx, w, h, 'back');
             } else if (this.hudConfig.depth === 'front') {
-                this.renderHudGreebles(this.textFrontCtx, w, h, 'front');
+                if (bakeFrontHudToTex) {
+                    this.renderHudGreebles(this.textFrontCtx, w, h, 'front');
+                }
             } else {
                 // 'mixed': refractive contour behind glass + crisp tracking callouts on front
                 this.renderHudGreebles(this.textBackCtx, w, h, 'back');
-                this.renderHudGreebles(this.textFrontCtx, w, h, 'front');
+                if (bakeFrontHudToTex) {
+                    this.renderHudGreebles(this.textFrontCtx, w, h, 'front');
+                }
             }
         }
 
@@ -1038,7 +1046,14 @@ class MotionBlobStudio {
         const h = this.gizmoCanvas.height;
         ctx.clearRect(0, 0, w, h);
 
-        if (!this.showGizmos || this.isRecording) return;
+        if (this.isRecording) return;
+
+        // Render front HUD callouts directly onto 2D overlay canvas during interactive preview (eliminates per-frame WebGL texture upload!)
+        if (this.hudConfig && this.hudConfig.enabled && (this.hudConfig.depth === 'front' || this.hudConfig.depth === 'mixed')) {
+            this.renderHudGreebles(ctx, w, h, 'front');
+        }
+
+        if (!this.showGizmos) return;
 
         for (let i = 0; i < this.blobs.length; i++) {
             const b = this.blobs[i];
@@ -1135,11 +1150,15 @@ class MotionBlobStudio {
 
         if (this.isPlaying) {
             this.currentTime = (this.currentTime + dt) % loopDur;
-            const scrub = document.getElementById('timelineScrubber');
-            scrub.value = this.currentTime.toFixed(2);
-            this.updateSliderFill(scrub);
-            document.getElementById('timeDisplay').textContent =
-                `${this.currentTime.toFixed(1).padStart(4, '0')}s / ${loopDur.toFixed(1)}s`;
+            // Throttle DOM & CSS variable mutations to ~12 Hz to eliminate per-frame style recalculation
+            if (now - this.lastTimelineUiTime >= 80) {
+                this.lastTimelineUiTime = now;
+                const scrub = document.getElementById('timelineScrubber');
+                scrub.value = this.currentTime.toFixed(2);
+                this.updateSliderFill(scrub);
+                document.getElementById('timeDisplay').textContent =
+                    `${this.currentTime.toFixed(1).padStart(4, '0')}s / ${loopDur.toFixed(1)}s`;
+            }
         }
 
         // Handle auto-stop for timed video recording
@@ -1151,10 +1170,16 @@ class MotionBlobStudio {
             }
         }
 
-        // Update real-time motion tracking nodes & HUD overlay textures only when moving or dirty
+        // Update real-time motion tracking nodes; only upload WebGL textures when dirty, recording, or in 'behind' lens HUD mode
         if (this.isPlaying || this.draggingBlobIndex !== -1 || this.typographyDirty) {
             this.updateTrackerNodes(dt);
-            if ((this.hudConfig && this.hudConfig.enabled) || this.typographyDirty) {
+            const hudNeedsWebGLTex = (this.hudConfig && this.hudConfig.enabled) && (
+                this.isRecording ||
+                this.draggingBlobIndex !== -1 ||
+                (this.hudConfig.depth === 'behind' && (now - this.lastHudUploadTime >= 48))
+            );
+            if (this.typographyDirty || hudNeedsWebGLTex) {
+                this.lastHudUploadTime = now;
                 this.updateTypographyTextures();
             }
         }
@@ -2007,14 +2032,29 @@ class MotionBlobStudio {
             this.synth.updateParams({ liquidResonance: v });
         });
 
-        // Export PNG Snapshot
+        // Export PNG Snapshot (always renders at full 1080p HD with HUD baked into WebGL texture!)
         const downloadPng = () => {
+            const prevScale = this.renderScale;
+            if (prevScale < 1.0) {
+                this.renderScale = 1.0;
+                this.setAspectRatio(this.aspect);
+            }
+            this.updateTrackerNodes(0.016);
+            this.typographyDirty = true;
+            this.updateTypographyTextures(true);
             this.renderWebGL();
             const link = document.createElement('a');
             link.download = `maleewich_blob_${Date.now()}.png`;
             link.href = this.glCanvas.toDataURL('image/png');
             link.click();
-            this.showToast('📸 PNG-постер сохранен');
+            this.typographyDirty = true;
+            if (prevScale < 1.0) {
+                this.renderScale = prevScale;
+                this.setAspectRatio(this.aspect);
+            } else {
+                this.updateTypographyTextures(false);
+            }
+            this.showToast('📸 PNG-постер (1080p) сохранен');
         };
         document.getElementById('btnSnapshot').addEventListener('click', downloadPng);
         document.getElementById('btnExportPngMain').addEventListener('click', downloadPng);
