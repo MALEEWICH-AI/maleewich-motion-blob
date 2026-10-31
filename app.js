@@ -239,6 +239,19 @@ class MotionBlobStudio {
         return (lumTop > 0.35 || lumGlow > 0.45);
     }
 
+    updateSliderFill(el) {
+        if (!el || el.type !== 'range') return;
+        const min = parseFloat(el.min) || 0;
+        const max = parseFloat(el.max) || 100;
+        const val = parseFloat(el.value) || 0;
+        const pct = Math.max(0, Math.min(100, ((val - min) / (max - min || 1)) * 100));
+        el.style.setProperty('--fill-pct', `${pct.toFixed(1)}%`);
+    }
+
+    updateAllSliderFills() {
+        document.querySelectorAll('input[type="range"]').forEach(el => this.updateSliderFill(el));
+    }
+
     syncThemeAccent(hex) {
         if (!hex) return;
         const clean = hex.replace('#', '');
@@ -248,7 +261,7 @@ class MotionBlobStudio {
         const b = num & 255;
         document.documentElement.style.setProperty('--accent', hex);
         document.documentElement.style.setProperty('--accent-dim', `rgba(${r}, ${g}, ${b}, 0.15)`);
-        document.documentElement.style.setProperty('--border-subtle', `rgba(${r}, ${g}, ${b}, 0.28)`);
+        document.documentElement.style.setProperty('--accent-glow', `rgba(${r}, ${g}, ${b}, 0.28)`);
         const hGreen = document.getElementById('hexGreenLabel');
         const hDeep = document.getElementById('hexDeepLabel');
         if (hGreen && this.params.greenColor) hGreen.textContent = this.params.greenColor.toUpperCase();
@@ -278,7 +291,7 @@ class MotionBlobStudio {
 
         const sel = document.getElementById('aspectSelect');
         if (sel) sel.value = aspect;
-        document.querySelectorAll('#aspectBtnGroup .seg-btn').forEach(btn => {
+        document.querySelectorAll('#aspectBtnGroup .seg-item, #aspectBtnGroup .seg-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.aspect === aspect);
         });
 
@@ -304,6 +317,12 @@ class MotionBlobStudio {
         this.params = JSON.parse(JSON.stringify(preset.params));
         this.blobs = JSON.parse(JSON.stringify(preset.blobs));
         this.selectedBlobIndex = 0;
+
+        const presetSel = document.getElementById('presetSelect');
+        if (presetSel) presetSel.value = presetId;
+        document.querySelectorAll('#presetCardGrid .preset-chip').forEach(chip => {
+            chip.classList.toggle('active', chip.dataset.preset === presetId);
+        });
 
         if (preset.textLayers && preset.textLayers[0]) {
             const t = preset.textLayers[0];
@@ -1002,7 +1021,9 @@ class MotionBlobStudio {
 
         if (this.isPlaying) {
             this.currentTime = (this.currentTime + dt) % loopDur;
-            document.getElementById('timelineScrubber').value = this.currentTime.toFixed(2);
+            const scrub = document.getElementById('timelineScrubber');
+            scrub.value = this.currentTime.toFixed(2);
+            this.updateSliderFill(scrub);
             document.getElementById('timeDisplay').textContent =
                 `${this.currentTime.toFixed(1).padStart(4, '0')}s / ${loopDur.toFixed(1)}s`;
         }
@@ -1203,6 +1224,7 @@ class MotionBlobStudio {
 
         document.getElementById('rngBlobPhase').value = b.animPhase;
         document.getElementById('valBlobPhase').textContent = Number(b.animPhase).toFixed(2);
+        this.updateAllSliderFills();
     }
 
     syncUIFromState() {
@@ -1270,6 +1292,7 @@ class MotionBlobStudio {
         document.getElementById('colText').value = tc.color;
         document.getElementById('rngTextOpacity').value = tc.opacity;
         document.getElementById('valTextOpacity').textContent = tc.opacity.toFixed(2);
+        this.updateAllSliderFills();
     }
 
     bindUI() {
@@ -1279,26 +1302,49 @@ class MotionBlobStudio {
             this.showToast(`Сцена: ${e.target.options[e.target.selectedIndex].text}`);
         });
 
+        document.querySelectorAll('#presetCardGrid .preset-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const presetId = chip.dataset.preset;
+                this.loadPreset(presetId);
+                const label = chip.querySelector('strong') ? chip.querySelector('strong').textContent : presetId;
+                this.showToast(`Сцена: ${label}`);
+            });
+        });
+
         document.getElementById('aspectSelect').addEventListener('change', (e) => {
             this.setAspectRatio(e.target.value);
         });
 
-        document.querySelectorAll('#aspectBtnGroup .seg-btn').forEach(btn => {
+        document.querySelectorAll('#aspectBtnGroup .seg-item, #aspectBtnGroup .seg-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 this.setAspectRatio(btn.dataset.aspect);
                 this.showToast(`Формат холста: ${btn.dataset.aspect}`);
             });
         });
 
-        // Node Filter Pills
-        document.querySelectorAll('#blobFilterGroup .filter-pill').forEach(pill => {
+        // Node Filter Tabs
+        document.querySelectorAll('#blobFilterGroup .filter-tab, #blobFilterGroup .filter-pill').forEach(pill => {
             pill.addEventListener('click', () => {
-                document.querySelectorAll('#blobFilterGroup .filter-pill').forEach(p => p.classList.remove('active'));
+                document.querySelectorAll('#blobFilterGroup .filter-tab, #blobFilterGroup .filter-pill').forEach(p => p.classList.remove('active'));
                 pill.classList.add('active');
                 this.blobFilter = pill.dataset.filter;
                 this.renderBlobList();
             });
         });
+
+        // Zen Mode (Fullscreen Stage)
+        const toggleZenMode = () => {
+            const shell = document.getElementById('appShell');
+            const btnZen = document.getElementById('btnZenMode');
+            if (!shell) return;
+            const isZen = shell.classList.toggle('zen-mode');
+            if (btnZen) btnZen.classList.toggle('active', isZen);
+            this.showToast(isZen ? 'Полноэкранный режим (Tab — вернуть панели)' : 'Панели управления открыты');
+        };
+        const btnZenMode = document.getElementById('btnZenMode');
+        if (btnZenMode) {
+            btnZenMode.addEventListener('click', toggleZenMode);
+        }
 
         const selQuality = document.getElementById('selRenderQuality');
         if (selQuality) {
@@ -1545,16 +1591,20 @@ class MotionBlobStudio {
             this.updateTypographyTextures();
         });
 
-        // Double-click any range slider with data-default to reset to default value
-        document.querySelectorAll('input[type="range"][data-default]').forEach(slider => {
-            slider.addEventListener('dblclick', () => {
-                slider.value = slider.dataset.default;
-                slider.dispatchEvent(new Event('input', { bubbles: true }));
-                this.showToast('Ползунок сброшен к стандарту');
-            });
+        // Update slider progress fill on any range input and reset on double-click
+        document.querySelectorAll('input[type="range"]').forEach(slider => {
+            this.updateSliderFill(slider);
+            slider.addEventListener('input', () => this.updateSliderFill(slider));
+            if (slider.dataset.default !== undefined) {
+                slider.addEventListener('dblclick', () => {
+                    slider.value = slider.dataset.default;
+                    slider.dispatchEvent(new Event('input', { bubbles: true }));
+                    this.showToast('Ползунок сброшен к стандарту');
+                });
+            }
         });
 
-        // Global Keyboard Shortcuts (Space = Play/Pause, R = Randomize)
+        // Global Keyboard Shortcuts (Space = Play/Pause, R = Randomize, Tab = Zen Mode, G = Gizmos, H = HUD)
         window.addEventListener('keydown', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
             if (e.code === 'Space') {
@@ -1563,6 +1613,15 @@ class MotionBlobStudio {
             } else if (e.code === 'KeyR' && !e.metaKey && !e.ctrlKey) {
                 e.preventDefault();
                 triggerRandomize();
+            } else if (e.code === 'Tab') {
+                e.preventDefault();
+                toggleZenMode();
+            } else if (e.code === 'KeyG' && !e.metaKey && !e.ctrlKey) {
+                e.preventDefault();
+                document.getElementById('btnToggleGizmos').click();
+            } else if (e.code === 'KeyH' && !e.metaKey && !e.ctrlKey) {
+                e.preventDefault();
+                document.getElementById('btnToggleHud').click();
             }
         });
 
@@ -1613,6 +1672,17 @@ class MotionBlobStudio {
         bindHudSlider('rngHudOpacity', 'valHudOpacity', 'opacity');
 
         // Typography Controls
+        document.querySelectorAll('#textTemplateGroup .tpl-pill').forEach(pill => {
+            pill.addEventListener('click', () => {
+                this.textConfig.visible = true;
+                this.textConfig.title = (pill.dataset.title || '').replace(/\\n/g, '\n');
+                this.textConfig.subtext = pill.dataset.sub || '';
+                this.textConfig.depth = pill.dataset.depth || 'behind';
+                this.syncUIFromState();
+                updateText();
+                this.showToast(`Шаблон текста: ${pill.textContent}`);
+            });
+        });
 
         document.getElementById('chkTextVisible').addEventListener('change', (e) => {
             this.textConfig.visible = e.target.checked;
@@ -1703,7 +1773,8 @@ class MotionBlobStudio {
         btnAudio.addEventListener('click', async () => {
             const active = await this.synth.toggle();
             btnAudio.classList.toggle('active', active);
-            btnAudio.textContent = active ? '🔊 Звук' : '🔇 Звук';
+            const lbl = document.getElementById('audioBtnLabel');
+            if (lbl) lbl.textContent = active ? 'Звук: Вкл' : 'Звук';
             this.showToast(active ? '🔊 Эмбиент-синтезатор включен' : '🔇 Звук выключен');
         });
 
@@ -1836,7 +1907,8 @@ class MotionBlobStudio {
             await this.synth.toggle();
             const btnAudio = document.getElementById('btnAudioToggle');
             btnAudio.classList.add('active');
-            btnAudio.textContent = '🔊 Звук: Вкл';
+            const lbl = document.getElementById('audioBtnLabel');
+            if (lbl) lbl.textContent = 'Звук: Вкл';
         }
 
         const canvasStream = this.glCanvas.captureStream(60);

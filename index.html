@@ -3,212 +3,114 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MALEEWICH // Motion Blob Studio</title>
+    <title>MALEEWICH // Studio 2.0</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=Syne:wght@700;800&family=Unbounded:wght@600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=Syne:wght@700;800&family=Unbounded:wght@600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-    <!-- Top Studio Header -->
-    <header class="topbar">
-        <div class="brand">
-            <span class="brand-dot" id="brandDot"></span>
-            <div class="brand-text">
-                <span class="brand-title">MALEEWICH</span>
-                <span class="brand-sub">MOTION STUDIO</span>
-            </div>
-        </div>
-
-        <div class="topbar-center">
-            <div class="control-pill">
-                <label for="presetSelect">Сцена:</label>
-                <select id="presetSelect">
-                    <option value="reference">Референс (motionRef)</option>
-                    <option value="vertical_symbiosis">Вертикальный симбиоз</option>
-                    <option value="editorial_post">Дизайн-пост 4:5</option>
-                    <option value="mitosis_ring">Клеточный триптих</option>
-                </select>
-            </div>
-
-            <button id="btnRandomize" class="btn btn-accent-outline" title="Сгенерировать новую сбалансированную композицию (Клавиша R)">
-                <span class="dice-icon">🎲</span> Случайная форма
-            </button>
-
-            <div class="divider-v"></div>
-
-            <!-- Segmented Aspect Ratio Buttons + hidden select for compatibility -->
-            <div class="segmented-group" id="aspectBtnGroup" title="Формат холста">
-                <button type="button" class="seg-btn active" data-aspect="9:16">9:16</button>
-                <button type="button" class="seg-btn" data-aspect="4:5">4:5</button>
-                <button type="button" class="seg-btn" data-aspect="1:1">1:1</button>
-            </div>
-            <select id="aspectSelect" class="sr-only">
-                <option value="9:16">9:16</option>
-                <option value="4:5">4:5</option>
-                <option value="1:1">1:1</option>
-            </select>
-
-            <div class="control-pill" title="Разрешение WebGL-рендера в реальном времени">
-                <label for="selRenderQuality">Качество:</label>
-                <select id="selRenderQuality">
-                    <option value="0.75">0.75× Быстро</option>
-                    <option value="1.0" selected>1.0× Full HD</option>
-                    <option value="1.25">1.25× Ультра</option>
-                </select>
-            </div>
-        </div>
-
-        <div class="topbar-right">
-            <button id="btnAudioToggle" class="btn btn-toggle" title="Процедурный био-эмбиент синтезатор">
-                🔇 Звук
-            </button>
-            <button id="btnShareLink" class="btn btn-secondary" title="Скопировать ссылку с текущими настройками сцены">
-                🔗 Поделиться
-            </button>
-            <button id="btnSnapshot" class="btn btn-secondary" title="Скачать PNG кадр в высоком разрешении">
-                📸 PNG
-            </button>
-            <button id="btnRecordVideo" class="btn btn-primary" title="Записать видеоролик 60 FPS">
-                <span class="rec-dot"></span> Запись видео
-            </button>
-        </div>
-    </header>
-
-    <!-- Main Workspace -->
-    <main class="workspace">
-        <!-- Left Panel: Scene Graph & Selected Node Inspector -->
-        <aside class="sidebar sidebar-left">
-            <div class="panel-header">
-                <div class="panel-title-row">
-                    <h2>Слои сцены <span class="count-pill"><span id="blobCountLabel">0</span>/16</span></h2>
+    <div class="app-shell" id="appShell">
+        <!-- Full-Bleed Interactive Stage -->
+        <main class="stage-backdrop">
+            <!-- Top Floating Command Island -->
+            <header class="floating-topbar">
+                <!-- Brand Identity -->
+                <div class="island-group brand-island">
+                    <span class="brand-orb" id="brandDot"></span>
+                    <span class="brand-name">MALEEWICH</span>
+                    <span class="brand-badge">2.0</span>
                 </div>
-                <div class="add-buttons">
-                    <button id="btnAddDual" class="btn-mini btn-accent" title="Добавить двухслойный био-блоб (Стекло + Ядро)">+ Ядро</button>
-                    <button id="btnAddDroplet" class="btn-mini" title="Добавить прозрачную стеклянную каплю или купол">+ Капля</button>
-                    <button id="btnAddCavity" class="btn-mini" title="Добавить внутреннее круглое окно-полость">+ Окно</button>
-                </div>
-                <!-- Node Filter Pills -->
-                <div class="filter-pills" id="blobFilterGroup">
-                    <button type="button" class="filter-pill active" data-filter="all">Все</button>
-                    <button type="button" class="filter-pill" data-filter="0">Ядра</button>
-                    <button type="button" class="filter-pill" data-filter="1">Капли</button>
-                    <button type="button" class="filter-pill" data-filter="3">Окна</button>
-                </div>
-            </div>
 
-            <div id="blobList" class="blob-list"></div>
-
-            <!-- Selected Blob Inspector Card -->
-            <div id="blobInspector" class="inspector-section inspector-selected-card">
-                <div class="section-title-row">
-                    <div class="selected-node-header">
-                        <span class="selected-node-dot" id="selectedNodeDot"></span>
-                        <h3 id="selectedBlobTitle">Инспектор узла</h3>
+                <!-- Center Viewport Controls Island -->
+                <div class="island-group center-island">
+                    <!-- Aspect Ratio Segmented Control -->
+                    <div class="seg-control" id="aspectBtnGroup" title="Формат кадра">
+                        <button type="button" class="seg-item active" data-aspect="9:16">9:16</button>
+                        <button type="button" class="seg-item" data-aspect="4:5">4:5</button>
+                        <button type="button" class="seg-item" data-aspect="1:1">1:1</button>
                     </div>
-                    <div class="node-actions">
-                        <button id="btnDuplicateBlob" class="btn-icon" title="Дублировать выбранный узел">⧉ Копия</button>
-                        <button id="btnDeleteBlob" class="btn-icon btn-danger" title="Удалить выбранный узел">✕</button>
-                    </div>
-                </div>
+                    <select id="aspectSelect" class="sr-only">
+                        <option value="9:16">9:16</option>
+                        <option value="4:5">4:5</option>
+                        <option value="1:1">1:1</option>
+                    </select>
 
-                <div class="form-grid-2">
-                    <div class="form-row">
-                        <label>Имя узла</label>
-                        <input type="text" id="inpBlobName" class="text-input" />
-                    </div>
-                    <div class="form-row">
-                        <label>Тип элемента</label>
-                        <select id="selBlobType" class="select-input">
-                            <option value="0">🟢 Ядро + Стекло</option>
-                            <option value="1">💧 Чистое стекло</option>
-                            <option value="2">🧪 Внутр. сгусток</option>
-                            <option value="3">⚫ Окно-полость</option>
+                    <div class="island-divider"></div>
+
+                    <!-- Viewport Overlay Toggles -->
+                    <button id="btnToggleGizmos" class="island-btn active" title="Интерактивные узлы на холсте (Клавиша G)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9" stroke-dasharray="4 3"/>
+                        </svg>
+                        <span>Узлы</span>
+                    </button>
+
+                    <button id="btnToggleHud" class="island-btn active" title="Техно-био HUD трекинг (Клавиша H)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/><circle cx="12" cy="12" r="2"/>
+                        </svg>
+                        <span>HUD</span>
+                    </button>
+
+                    <button id="btnCompareRef" class="island-btn" title="Сравнить с оригинальным видео motionRef.mp4">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="3"/><line x1="12" y1="3" x2="12" y2="21"/>
+                        </svg>
+                        <span>Референс</span>
+                    </button>
+
+                    <div class="island-divider"></div>
+
+                    <!-- Render Quality Pill -->
+                    <div class="quality-select-wrap" title="Качество WebGL-рендера">
+                        <select id="selRenderQuality">
+                            <option value="0.75">0.75× Fast</option>
+                            <option value="1.0" selected>1080p HD</option>
+                            <option value="1.25">1.25× Ultra</option>
                         </select>
                     </div>
+
+                    <button id="btnZenMode" class="island-btn icon-only" title="Скрыть/показать боковые панели (Клавиша Tab)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                        </svg>
+                    </button>
                 </div>
 
-                <div class="slider-group">
-                    <div class="slider-header">
-                        <span>Радиус (Размер)</span>
-                        <span id="valBlobRadius" class="mono-val">0.250</span>
-                    </div>
-                    <input type="range" id="rngBlobRadius" min="0.02" max="0.50" step="0.002" value="0.25" data-default="0.25" />
+                <!-- Right Quick Export & Share Island -->
+                <div class="island-group actions-island">
+                    <button id="btnAudioToggle" class="island-btn" title="Био-эмбиент синтезатор">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M2 10v3M6 6v11M10 3v18M14 8v7M18 5v13M22 10v3"/>
+                        </svg>
+                        <span id="audioBtnLabel">Звук</span>
+                    </button>
+
+                    <button id="btnShareLink" class="island-btn" title="Скопировать ссылку на текущую сцену">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                        </svg>
+                        <span>Ссылка</span>
+                    </button>
+
+                    <button id="btnSnapshot" class="island-btn" title="Сохранить PNG-кадр">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                            <circle cx="12" cy="13" r="4"/>
+                        </svg>
+                        <span>PNG</span>
+                    </button>
+
+                    <button id="btnRecordVideo" class="cta-record-btn" title="Записать видео 60 FPS">
+                        <span class="rec-dot"></span>
+                        <span>Запись</span>
+                    </button>
                 </div>
+            </header>
 
-                <div class="slider-group" id="grpGreenRatio">
-                    <div class="slider-header">
-                        <span>Заполнение ядром (0 = прозрачный купол)</span>
-                        <span id="valBlobGreen" class="mono-val">0.80</span>
-                    </div>
-                    <input type="range" id="rngBlobGreen" min="0.0" max="0.95" step="0.01" value="0.80" data-default="0.82" />
-                </div>
-
-                <div class="coord-box">
-                    <div class="coord-box-title">Координаты в 3D-пространстве</div>
-                    <div class="slider-grid-3">
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Ось X</span>
-                                <span id="valBlobX" class="mono-val">0.00</span>
-                            </div>
-                            <input type="range" id="rngBlobX" min="-0.75" max="0.75" step="0.01" value="0.0" data-default="0.0" />
-                        </div>
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Ось Y</span>
-                                <span id="valBlobY" class="mono-val">0.00</span>
-                            </div>
-                            <input type="range" id="rngBlobY" min="-1.05" max="1.05" step="0.01" value="0.0" data-default="0.0" />
-                        </div>
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Глубина Z</span>
-                                <span id="valBlobZ" class="mono-val">0.00</span>
-                            </div>
-                            <input type="range" id="rngBlobZ" min="-0.35" max="0.35" step="0.01" value="0.0" data-default="0.0" />
-                        </div>
-                    </div>
-                </div>
-
-                <div class="slider-grid-2">
-                    <div class="slider-group">
-                        <div class="slider-header">
-                            <span>Амплитуда движения</span>
-                            <span id="valBlobAmp" class="mono-val">0.85</span>
-                        </div>
-                        <input type="range" id="rngBlobAmp" min="0.0" max="2.0" step="0.05" value="0.85" data-default="0.85" />
-                    </div>
-                    <div class="slider-group">
-                        <div class="slider-header">
-                            <span>Фаза волны</span>
-                            <span id="valBlobPhase" class="mono-val">0.10</span>
-                        </div>
-                        <input type="range" id="rngBlobPhase" min="0.0" max="1.0" step="0.01" value="0.10" data-default="0.0" />
-                    </div>
-                </div>
-
-                <div class="micro-hint">
-                    🖱 Перетаскивайте узлы прямо на холсте • Колесо мыши меняет радиус • Двойной клик по ползунку — сброс
-                </div>
-            </div>
-        </aside>
-
-        <!-- Center Stage: WebGL2 Viewport + Floating Overlay Controls + Transport Dock -->
-        <section class="viewport-area">
-            <!-- Floating Quick Overlay Pills on top of Viewport -->
-            <div class="viewport-floating-bar">
-                <button id="btnToggleGizmos" class="vp-pill active" title="Показать/скрыть интерактивные точки узлов на холсте">
-                    🎯 Узлы
-                </button>
-                <button id="btnToggleHud" class="vp-pill active" title="Включить/выключить техно-био HUD трекинг">
-                    📡 Трекинг UI
-                </button>
-                <button id="btnCompareRef" class="vp-pill" title="Сравнить бок о бок с оригинальным видео motionRef.mp4">
-                    👁 Сравнить с референсом
-                </button>
-            </div>
-
+            <!-- Center Stage Canvas Area -->
             <div class="viewport-stage" id="viewportStage">
                 <div class="canvas-card" id="canvasCard">
                     <canvas id="glCanvas" width="1080" height="1920"></canvas>
@@ -218,224 +120,394 @@
                     </div>
                 </div>
 
-                <!-- Reference Video Card (Shown when Compare Mode is toggled) -->
+                <!-- Reference Video Card (Compare Mode) -->
                 <div class="canvas-card ref-card hidden" id="refCard">
-                    <div class="ref-tag">Оригинал: motionRef.mp4</div>
+                    <div class="ref-tag">Референс: motionRef.mp4</div>
                     <video id="refVideo" src="./motionRef.mp4" loop muted playsinline></video>
                 </div>
             </div>
 
-            <!-- Floating Glassmorphic Timeline & Transport Dock -->
-            <div class="timeline-bar">
-                <button id="btnPlayPause" class="btn-transport" title="Пауза / Воспроизведение (Пробел)">⏸</button>
+            <!-- Bottom Floating Transport & Timeline Island -->
+            <footer class="floating-timeline">
+                <button id="btnPlayPause" class="transport-play-btn" title="Воспроизведение / Пауза (Пробел)">⏸</button>
+
                 <span id="timeDisplay" class="mono-val time-readout">00.0s / 15.0s</span>
-                <div class="timeline-track-wrap">
+
+                <div class="timeline-scrubber-wrap">
                     <input type="range" id="timelineScrubber" class="timeline-slider" min="0" max="15" step="0.02" value="0" />
                 </div>
-                <div class="speed-control">
-                    <label>Цикл:</label>
+
+                <div class="loop-pill" title="Длительность бесшовного цикла">
                     <select id="loopDurationSelect">
-                        <option value="8">8с</option>
-                        <option value="15" selected>15с</option>
-                        <option value="24">24с</option>
+                        <option value="8">8 сек</option>
+                        <option value="15" selected>15 сек</option>
+                        <option value="24">24 сек</option>
                     </select>
                 </div>
-                <div class="fps-badge" title="Частота кадров в секунду"><span id="fpsCounter">60</span> FPS</div>
-            </div>
-        </section>
 
-        <!-- Right Panel: Segmented Tabs for Color/Material, HUD/Typography, Sound/Export -->
-        <aside class="sidebar sidebar-right">
-            <div class="tabs-header">
-                <button class="tab-btn active" data-tab="tabMaterials">🎨 Цвет и Стекло</button>
-                <button class="tab-btn" data-tab="tabTypography">📡 HUD и Текст</button>
-                <button class="tab-btn" data-tab="tabExport">🎬 Звук и Экспорт</button>
+                <div class="fps-pill" title="Производительность рендера">
+                    <span class="fps-dot"></span>
+                    <span id="fpsCounter">60</span> FPS
+                </div>
+            </footer>
+        </main>
+
+        <!-- LEFT FLOATING DOCK: Scene Presets, Outliner & Node Inspector -->
+        <aside class="floating-dock dock-left" id="dockLeft">
+            <!-- Section 1: Scene Presets & Procedural Generator -->
+            <div class="dock-card">
+                <div class="card-header">
+                    <span class="card-title">Композиция сцены</span>
+                    <button id="btnRandomize" class="btn-generate" title="Сгенерировать новую композицию (Клавиша R)">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                            <polyline points="7.5 4.21 12 6.81 16.5 4.21"/><polyline points="7.5 19.79 7.5 14.6 3 12"/>
+                            <polyline points="21 12 16.5 14.6 16.5 19.79"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
+                        </svg>
+                        <span>Случайная (R)</span>
+                    </button>
+                </div>
+
+                <!-- 2x2 Visual Preset Grid + hidden select for compatibility -->
+                <div class="preset-grid" id="presetCardGrid">
+                    <button type="button" class="preset-chip active" data-preset="reference">
+                        <span class="preset-chip-dot"></span>
+                        <div class="preset-chip-info">
+                            <strong>Reference</strong>
+                            <small>Оригинал 9:16</small>
+                        </div>
+                    </button>
+                    <button type="button" class="preset-chip" data-preset="vertical_symbiosis">
+                        <span class="preset-chip-dot"></span>
+                        <div class="preset-chip-info">
+                            <strong>Symbiosis</strong>
+                            <small>Вертикаль</small>
+                        </div>
+                    </button>
+                    <button type="button" class="preset-chip" data-preset="editorial_post">
+                        <span class="preset-chip-dot"></span>
+                        <div class="preset-chip-info">
+                            <strong>Editorial</strong>
+                            <small>Постер 4:5</small>
+                        </div>
+                    </button>
+                    <button type="button" class="preset-chip" data-preset="mitosis_ring">
+                        <span class="preset-chip-dot"></span>
+                        <div class="preset-chip-info">
+                            <strong>Mitosis</strong>
+                            <small>Триптих</small>
+                        </div>
+                    </button>
+                </div>
+                <select id="presetSelect" class="sr-only">
+                    <option value="reference">Референс (motionRef)</option>
+                    <option value="vertical_symbiosis">Вертикальный симбиоз</option>
+                    <option value="editorial_post">Дизайн-пост 4:5</option>
+                    <option value="mitosis_ring">Клеточный триптих</option>
+                </select>
             </div>
 
-            <!-- TAB 1: Colors, Studio Background, Glass Physics & Basalt Rock -->
-            <div id="tabMaterials" class="tab-content active">
-                <!-- Core Color Palette Card -->
-                <div class="inspector-section">
-                    <div class="section-title-row">
-                        <h3>Оттенок био-ядра и каустики</h3>
-                        <span class="badge-tag">Авто-ореол окон</span>
+            <!-- Section 2: 3D Scene Outliner -->
+            <div class="dock-card outliner-card">
+                <div class="card-header">
+                    <span class="card-title">Объекты сцены <span class="counter-tag"><span id="blobCountLabel">0</span>/16</span></span>
+                    <div class="quick-add-bar">
+                        <button id="btnAddDual" class="chip-add accent" title="Добавить двухслойный био-узел">+ Ядро</button>
+                        <button id="btnAddDroplet" class="chip-add" title="Добавить стеклянную каплю">+ Капля</button>
+                        <button id="btnAddCavity" class="chip-add" title="Добавить внутреннее окно-полость">+ Окно</button>
                     </div>
-                    <div class="palette-swatches">
-                        <button class="swatch-btn active" data-green="#9be600" data-deep="#162900" title="Acid Bio (Оригинал)">
-                            <span style="background: linear-gradient(135deg, #b8ff1a, #2c5200);"></span>Оригинал
+                </div>
+
+                <!-- Filter Tabs -->
+                <div class="filter-bar" id="blobFilterGroup">
+                    <button type="button" class="filter-tab active" data-filter="all">Все</button>
+                    <button type="button" class="filter-tab" data-filter="0">Ядра</button>
+                    <button type="button" class="filter-tab" data-filter="1">Капли</button>
+                    <button type="button" class="filter-tab" data-filter="3">Окна</button>
+                </div>
+
+                <div id="blobList" class="blob-list"></div>
+            </div>
+
+            <!-- Section 3: Selected Node Inspector -->
+            <div id="blobInspector" class="dock-card node-inspector-card">
+                <div class="card-header">
+                    <div class="node-title-wrap">
+                        <span class="selected-node-dot" id="selectedNodeDot"></span>
+                        <span class="card-title" id="selectedBlobTitle">Свойства узла</span>
+                    </div>
+                    <div class="node-action-btns">
+                        <button id="btnDuplicateBlob" class="icon-action-btn" title="Дублировать узел">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                            </svg>
+                        </button>
+                        <button id="btnDeleteBlob" class="icon-action-btn danger" title="Удалить узел">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="prop-grid-2">
+                    <div class="field-box">
+                        <label>Имя</label>
+                        <input type="text" id="inpBlobName" class="studio-input" />
+                    </div>
+                    <div class="field-box">
+                        <label>Роль</label>
+                        <select id="selBlobType" class="studio-select">
+                            <option value="0">Ядро + Стекло</option>
+                            <option value="1">Капля / Купол</option>
+                            <option value="2">Сгусток ядра</option>
+                            <option value="3">Окно-полость</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="scrub-row">
+                    <div class="scrub-meta">
+                        <span>Радиус сферы</span>
+                        <span id="valBlobRadius" class="mono-val">0.250</span>
+                    </div>
+                    <input type="range" id="rngBlobRadius" min="0.02" max="0.50" step="0.002" value="0.25" data-default="0.25" />
+                </div>
+
+                <div class="scrub-row" id="grpGreenRatio">
+                    <div class="scrub-meta">
+                        <span>Объём био-ядра</span>
+                        <span id="valBlobGreen" class="mono-val">0.80</span>
+                    </div>
+                    <input type="range" id="rngBlobGreen" min="0.0" max="0.95" step="0.01" value="0.80" data-default="0.82" />
+                </div>
+
+                <div class="xyz-grid">
+                    <div class="scrub-row compact">
+                        <div class="scrub-meta"><span>X</span><span id="valBlobX" class="mono-val">0.00</span></div>
+                        <input type="range" id="rngBlobX" min="-0.75" max="0.75" step="0.01" value="0.0" data-default="0.0" />
+                    </div>
+                    <div class="scrub-row compact">
+                        <div class="scrub-meta"><span>Y</span><span id="valBlobY" class="mono-val">0.00</span></div>
+                        <input type="range" id="rngBlobY" min="-1.05" max="1.05" step="0.01" value="0.0" data-default="0.0" />
+                    </div>
+                    <div class="scrub-row compact">
+                        <div class="scrub-meta"><span>Z</span><span id="valBlobZ" class="mono-val">0.00</span></div>
+                        <input type="range" id="rngBlobZ" min="-0.35" max="0.35" step="0.01" value="0.0" data-default="0.0" />
+                    </div>
+                </div>
+
+                <div class="prop-grid-2">
+                    <div class="scrub-row compact">
+                        <div class="scrub-meta"><span>Движение</span><span id="valBlobAmp" class="mono-val">0.85</span></div>
+                        <input type="range" id="rngBlobAmp" min="0.0" max="2.0" step="0.05" value="0.85" data-default="0.85" />
+                    </div>
+                    <div class="scrub-row compact">
+                        <div class="scrub-meta"><span>Фаза</span><span id="valBlobPhase" class="mono-val">0.10</span></div>
+                        <input type="range" id="rngBlobPhase" min="0.0" max="1.0" step="0.01" value="0.10" data-default="0.0" />
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- RIGHT FLOATING DOCK: Material, Environment, HUD, Typography & Export -->
+        <aside class="floating-dock dock-right" id="dockRight">
+            <!-- Sleek Segmented Mode Switcher -->
+            <nav class="dock-nav">
+                <button class="tab-btn active" data-tab="tabMaterials">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/><path d="M12 2a7 7 0 1 0 10 10"/>
+                    </svg>
+                    <span>Материал</span>
+                </button>
+                <button class="tab-btn" data-tab="tabTypography">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 7V4h16v3M9 20h6M12 4v16"/>
+                    </svg>
+                    <span>HUD и Пост</span>
+                </button>
+                <button class="tab-btn" data-tab="tabExport">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+                    </svg>
+                    <span>Экспорт</span>
+                </button>
+            </nav>
+
+            <!-- TAB 1: Material, Color Orbs, Studio Backdrop & Terrain -->
+            <div id="tabMaterials" class="tab-content active">
+                <!-- Card 1: Bio-Core Material & Hue -->
+                <div class="dock-card">
+                    <div class="card-header">
+                        <span class="card-title">Оттенок био-ядра</span>
+                        <span class="pill-badge">3D Subsurface</span>
+                    </div>
+
+                    <!-- 6 Glowing 3D Orb Swatches -->
+                    <div class="orb-palette">
+                        <button class="swatch-btn active" data-green="#9be600" data-deep="#162900" title="Acid Bio">
+                            <span class="orb-preview" style="background: radial-gradient(circle at 32% 28%, #d9ff66, #9be600 55%, #162900);"></span>
+                            <small>Acid</small>
                         </button>
                         <button class="swatch-btn" data-green="#00f5d4" data-deep="#002b24" title="Cyber Aqua">
-                            <span style="background: linear-gradient(135deg, #56cfe1, #003830);"></span>Аква
+                            <span class="orb-preview" style="background: radial-gradient(circle at 32% 28%, #9bf6ff, #00f5d4 55%, #002b24);"></span>
+                            <small>Aqua</small>
                         </button>
                         <button class="swatch-btn" data-green="#a855f7" data-deep="#240a40" title="Hyper Violet">
-                            <span style="background: linear-gradient(135deg, #c084fc, #2e1065);"></span>Виолет
+                            <span class="orb-preview" style="background: radial-gradient(circle at 32% 28%, #e9d5ff, #a855f7 55%, #240a40);"></span>
+                            <small>Violet</small>
                         </button>
                         <button class="swatch-btn" data-green="#ff2a85" data-deep="#330016" title="Bio Plasma">
-                            <span style="background: linear-gradient(135deg, #ff5ca1, #4a0420);"></span>Плазма
+                            <span class="orb-preview" style="background: radial-gradient(circle at 32% 28%, #ff9ebb, #ff2a85 55%, #330016);"></span>
+                            <small>Plasma</small>
                         </button>
                         <button class="swatch-btn" data-green="#ffb703" data-deep="#331c00" title="Solar Amber">
-                            <span style="background: linear-gradient(135deg, #ffd166, #422006);"></span>Янтарь
+                            <span class="orb-preview" style="background: radial-gradient(circle at 32% 28%, #fff3b0, #ffb703 55%, #331c00);"></span>
+                            <small>Amber</small>
                         </button>
                         <button class="swatch-btn" data-green="#d8f3dc" data-deep="#1b262c" title="Liquid Chrome">
-                            <span style="background: linear-gradient(135deg, #ffffff, #334155);"></span>Хром
+                            <span class="orb-preview" style="background: radial-gradient(circle at 32% 28%, #ffffff, #cbd5e1 55%, #1e293b);"></span>
+                            <small>Chrome</small>
                         </button>
                     </div>
 
-                    <div class="color-row-grid">
-                        <div class="color-field">
-                            <label>Основной цвет ядра</label>
-                            <div class="color-input-wrap">
-                                <input type="color" id="colGreen" value="#9be600" />
-                                <span id="hexGreenLabel" class="mono-val">#9BE600</span>
+                    <div class="color-pair-row">
+                        <label class="color-well">
+                            <input type="color" id="colGreen" value="#9be600" />
+                            <div class="color-well-meta">
+                                <span>Ядро</span>
+                                <strong id="hexGreenLabel" class="mono-val">#9BE600</strong>
                             </div>
-                        </div>
-                        <div class="color-field">
-                            <label>Глубокая тень и ореол</label>
-                            <div class="color-input-wrap">
-                                <input type="color" id="colGreenDeep" value="#162900" />
-                                <span id="hexDeepLabel" class="mono-val">#162900</span>
+                        </label>
+                        <label class="color-well">
+                            <input type="color" id="colGreenDeep" value="#162900" />
+                            <div class="color-well-meta">
+                                <span>Тень и окна</span>
+                                <strong id="hexDeepLabel" class="mono-val">#162900</strong>
                             </div>
-                        </div>
+                        </label>
                     </div>
                 </div>
 
-                <!-- Studio Background Theme Card (Dark & Light Themes!) -->
-                <div class="inspector-section">
-                    <div class="section-title-row">
-                        <h3>Фон студии (Тёмный / Светлый)</h3>
-                    </div>
-                    <div class="bg-preset-pills" id="bgPresetGroup">
-                        <button type="button" class="bg-pill active" data-top="#020302" data-glow="#121812" title="Глубокий чёрный Octane">🌑 Обсидиан</button>
-                        <button type="button" class="bg-pill" data-top="#040d0a" data-glow="#102b22" title="Тёмный изумруд">🌲 Изумруд</button>
-                        <button type="button" class="bg-pill" data-top="#dce4ee" data-glow="#f8fafc" title="Светлый студийный фон с прозрачными стеклянными пузырьками">☀️ Светлый</button>
-                        <button type="button" class="bg-pill" data-top="#e6e2d8" data-glow="#faf8f5" title="Тёплый редакционный жемчуг">🐚 Жемчуг</button>
-                        <button type="button" class="bg-pill" data-top="#cbd5e1" data-glow="#f1f5f9" title="Холодный хромированный лёд">❄️ Лёд</button>
+                <!-- Card 2: Studio Backdrop (Dark & Light Modes) -->
+                <div class="dock-card">
+                    <div class="card-header">
+                        <span class="card-title">Среда и фон студии</span>
                     </div>
 
-                    <div class="color-row-grid">
-                        <div class="color-field">
-                            <label>Базовый тон фона</label>
-                            <div class="color-input-wrap">
-                                <input type="color" id="colBgTop" value="#020302" />
-                                <span id="hexBgTopLabel" class="mono-val">#020302</span>
+                    <div class="env-chips" id="bgPresetGroup">
+                        <button type="button" class="bg-pill active" data-top="#020302" data-glow="#121812">
+                            <span class="env-dot" style="background:#050705; border-color:#2a352b;"></span>Обсидиан
+                        </button>
+                        <button type="button" class="bg-pill" data-top="#040d0a" data-glow="#102b22">
+                            <span class="env-dot" style="background:#0d261d;"></span>Изумруд
+                        </button>
+                        <button type="button" class="bg-pill" data-top="#dce4ee" data-glow="#f8fafc">
+                            <span class="env-dot" style="background:#f1f5f9;"></span>Светлый
+                        </button>
+                        <button type="button" class="bg-pill" data-top="#e6e2d8" data-glow="#faf8f5">
+                            <span class="env-dot" style="background:#f5f2eb;"></span>Жемчуг
+                        </button>
+                        <button type="button" class="bg-pill" data-top="#cbd5e1" data-glow="#f1f5f9">
+                            <span class="env-dot" style="background:#cbd5e1;"></span>Лёд
+                        </button>
+                    </div>
+
+                    <div class="color-pair-row">
+                        <label class="color-well">
+                            <input type="color" id="colBgTop" value="#020302" />
+                            <div class="color-well-meta">
+                                <span>Фон</span>
+                                <strong id="hexBgTopLabel" class="mono-val">#020302</strong>
                             </div>
-                        </div>
-                        <div class="color-field">
-                            <label>Свечение фона</label>
-                            <div class="color-input-wrap">
-                                <input type="color" id="colBgGlow" value="#121812" />
-                                <span id="hexBgGlowLabel" class="mono-val">#121812</span>
+                        </label>
+                        <label class="color-well">
+                            <input type="color" id="colBgGlow" value="#121812" />
+                            <div class="color-well-meta">
+                                <span>Свечение</span>
+                                <strong id="hexBgGlowLabel" class="mono-val">#121812</strong>
                             </div>
-                        </div>
+                        </label>
                     </div>
                 </div>
 
-                <!-- Glass & Core Physics Card -->
-                <div class="inspector-section">
-                    <h3>Оптика стекла и текстура ядра</h3>
-                    <div class="slider-grid-2">
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Слияние стекла</span>
-                                <span id="valSmoothGlass" class="mono-val">0.25</span>
-                            </div>
+                <!-- Card 3: Optical Glass & Core Surface Physics -->
+                <div class="dock-card">
+                    <div class="card-header">
+                        <span class="card-title">Оптика стекла и ядра</span>
+                    </div>
+
+                    <div class="prop-grid-2">
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Вязкость стекла</span><span id="valSmoothGlass" class="mono-val">0.25</span></div>
                             <input type="range" id="rngSmoothGlass" min="0.05" max="0.50" step="0.01" value="0.25" data-default="0.26" />
                         </div>
-
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Слияние ядра</span>
-                                <span id="valSmoothGreen" class="mono-val">0.22</span>
-                            </div>
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Вязкость ядра</span><span id="valSmoothGreen" class="mono-val">0.22</span></div>
                             <input type="range" id="rngSmoothGreen" min="0.05" max="0.45" step="0.01" value="0.22" data-default="0.18" />
                         </div>
                     </div>
 
-                    <div class="slider-grid-2">
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Преломление (IOR)</span>
-                                <span id="valGlassIOR" class="mono-val">1.48</span>
-                            </div>
+                    <div class="prop-grid-2">
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Преломление IOR</span><span id="valGlassIOR" class="mono-val">1.48</span></div>
                             <input type="range" id="rngGlassIOR" min="1.10" max="2.10" step="0.01" value="1.48" data-default="1.52" />
                         </div>
-
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Дисперсия спектра</span>
-                                <span id="valGlassDispersion" class="mono-val">0.35</span>
-                            </div>
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Дисперсия</span><span id="valGlassDispersion" class="mono-val">0.35</span></div>
                             <input type="range" id="rngGlassDispersion" min="0.0" max="1.2" step="0.05" value="0.35" data-default="0.38" />
                         </div>
                     </div>
 
-                    <div class="slider-grid-2">
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Контурный блик</span>
-                                <span id="valFresnel" class="mono-val">1.25</span>
-                            </div>
+                    <div class="prop-grid-2">
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Блик Френеля</span><span id="valFresnel" class="mono-val">1.25</span></div>
                             <input type="range" id="rngFresnel" min="0.4" max="2.2" step="0.05" value="1.25" data-default="1.35" />
                         </div>
-
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Микро-пузырьки</span>
-                                <span id="valBubbles" class="mono-val">1.00</span>
-                            </div>
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Микро-пузырьки</span><span id="valBubbles" class="mono-val">1.00</span></div>
                             <input type="range" id="rngBubbles" min="0.0" max="2.0" step="0.05" value="1.00" data-default="1.15" />
                         </div>
                     </div>
 
-                    <div class="slider-group">
-                        <div class="slider-header">
-                            <span>Тех-маркировки и штампы на 3D-ядре</span>
+                    <div class="scrub-row">
+                        <div class="scrub-meta">
+                            <span>Тех-штампы на поверхности 3D-ядра</span>
                             <span id="valCoreDetail" class="mono-val">1.00</span>
                         </div>
                         <input type="range" id="rngCoreDetail" min="0.0" max="2.0" step="0.05" value="1.00" data-default="1.00" />
                     </div>
                 </div>
 
-                <!-- Basalt Rock & Camera Card -->
-                <div class="inspector-section">
-                    <div class="section-title-row">
-                        <h3>Базальтовая порода и ракурс</h3>
-                        <label class="switch" title="Включить/выключить скальную породу снизу">
+                <!-- Card 4: Volcanic Basalt Terrain & Camera -->
+                <div class="dock-card">
+                    <div class="card-header">
+                        <span class="card-title">Базальтовая порода и Камера</span>
+                        <label class="switch" title="Показать/скрыть скальную породу">
                             <input type="checkbox" id="chkRockEnabled" checked />
                             <span class="slider-toggle"></span>
                         </label>
                     </div>
 
                     <div id="rockControlsWrap" class="collapsible-group">
-                        <div class="slider-grid-3">
-                            <div class="slider-group">
-                                <div class="slider-header">
-                                    <span>Высота</span>
-                                    <span id="valRockHeight" class="mono-val">-0.56</span>
-                                </div>
+                        <div class="xyz-grid">
+                            <div class="scrub-row compact">
+                                <div class="scrub-meta"><span>Высота</span><span id="valRockHeight" class="mono-val">-0.56</span></div>
                                 <input type="range" id="rngRockHeight" min="-0.95" max="-0.25" step="0.01" value="-0.56" data-default="-0.56" />
                             </div>
-
-                            <div class="slider-group">
-                                <div class="slider-header">
-                                    <span>Сколы</span>
-                                    <span id="valRockRoughness" class="mono-val">1.15</span>
-                                </div>
+                            <div class="scrub-row compact">
+                                <div class="scrub-meta"><span>Сколы</span><span id="valRockRoughness" class="mono-val">1.15</span></div>
                                 <input type="range" id="rngRockRoughness" min="0.3" max="1.8" step="0.05" value="1.15" data-default="1.15" />
                             </div>
-
-                            <div class="slider-group">
-                                <div class="slider-header">
-                                    <span>Споры мха</span>
-                                    <span id="valMossIntensity" class="mono-val">1.15</span>
-                                </div>
+                            <div class="scrub-row compact">
+                                <div class="scrub-meta"><span>Мох</span><span id="valMossIntensity" class="mono-val">1.15</span></div>
                                 <input type="range" id="rngMossIntensity" min="0.0" max="2.0" step="0.05" value="1.15" data-default="1.15" />
                             </div>
                         </div>
                     </div>
 
-                    <div class="slider-group" style="margin-top: 4px;">
-                        <div class="slider-header">
+                    <div class="scrub-row">
+                        <div class="scrub-meta">
                             <span>Масштаб камеры (Zoom)</span>
                             <span id="valCamZoom" class="mono-val">1.00</span>
                         </div>
@@ -444,98 +516,89 @@
                 </div>
             </div>
 
-            <!-- TAB 2: UI Motion Tracking Greebles & Post Typography -->
+            <!-- TAB 2: Motion Tracking HUD & Editorial Typography -->
             <div id="tabTypography" class="tab-content">
-                <div class="inspector-section">
-                    <div class="section-title-row">
-                        <h3>UI-Трекинг (HUD Телеметрия)</h3>
+                <div class="dock-card">
+                    <div class="card-header">
+                        <span class="card-title">Трекинг-телеметрия (HUD)</span>
                         <label class="switch">
                             <input type="checkbox" id="chkHudEnabled" checked />
                             <span class="slider-toggle"></span>
                         </label>
                     </div>
-                    <p class="section-desc">
-                        Тонкие прицелы и орбитальные дуги автоматически отслеживают движение сфер и капель в реальном времени.
-                    </p>
 
-                    <div class="form-row">
-                        <label>Стиль графики</label>
-                        <select id="selHudStyle" class="select-input">
+                    <div class="field-box">
+                        <label>Режим графики</label>
+                        <select id="selHudStyle" class="studio-select">
                             <option value="bio_telemetry">Minimal Telemetry (SURFACE / TENSION / SAT)</option>
                             <option value="cyber_minimal">Ultra-Minimal (Только орбиты SAT и ⊕)</option>
-                            <option value="td_tracker">Connected Nodes (С тонкими нитями связей)</option>
+                            <option value="td_tracker">Connected Nodes (Тонкие нити связей)</option>
                         </select>
                     </div>
 
-                    <div class="form-grid-2">
-                        <div class="form-row">
+                    <div class="prop-grid-2">
+                        <div class="field-box">
                             <label>Оптический слой</label>
-                            <select id="selHudDepth" class="select-input">
-                                <option value="mixed">Смешанный (Преломление + Поверх)</option>
+                            <select id="selHudDepth" class="studio-select">
+                                <option value="mixed">Смешанный</option>
                                 <option value="front">Поверх стекла</option>
-                                <option value="behind">За стеклом (В линзе)</option>
+                                <option value="behind">За стеклом (Линза)</option>
                             </select>
                         </div>
-
-                        <div class="form-row">
-                            <label>Цвет меток</label>
-                            <select id="selHudColorMode" class="select-input">
-                                <option value="mixed">Акцент ядра + Белый</option>
-                                <option value="acid">В цвет ядра</option>
-                                <option value="white">Чистый белый</option>
+                        <div class="field-box">
+                            <label>Палитра линий</label>
+                            <select id="selHudColorMode" class="studio-select">
+                                <option value="mixed">Акцент + Контраст</option>
+                                <option value="acid">Монохром ядра</option>
+                                <option value="white">Чистый контраст</option>
                             </select>
                         </div>
                     </div>
 
-                    <div class="slider-grid-3">
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Кол-во</span>
-                                <span id="valHudDensity" class="mono-val">1.00</span>
-                            </div>
+                    <div class="xyz-grid">
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Плотность</span><span id="valHudDensity" class="mono-val">1.00</span></div>
                             <input type="range" id="rngHudDensity" min="0.20" max="1.60" step="0.05" value="1.00" data-default="1.00" />
                         </div>
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Инерция</span>
-                                <span id="valHudLag" class="mono-val">0.35</span>
-                            </div>
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Инерция</span><span id="valHudLag" class="mono-val">0.35</span></div>
                             <input type="range" id="rngHudLag" min="0.0" max="0.88" step="0.02" value="0.35" data-default="0.35" />
                         </div>
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Яркость</span>
-                                <span id="valHudOpacity" class="mono-val">0.90</span>
-                            </div>
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Яркость</span><span id="valHudOpacity" class="mono-val">0.90</span></div>
                             <input type="range" id="rngHudOpacity" min="0.15" max="1.0" step="0.05" value="0.90" data-default="0.90" />
                         </div>
                     </div>
                 </div>
 
-                <div class="inspector-section">
-                    <div class="section-title-row">
-                        <h3>Типографика поста</h3>
+                <div class="dock-card">
+                    <div class="card-header">
+                        <span class="card-title">Типографика постера</span>
                         <label class="switch">
                             <input type="checkbox" id="chkTextVisible" />
                             <span class="slider-toggle"></span>
                         </label>
                     </div>
-                    <p class="section-desc">
-                        В режиме «За стеклом» буквы оптически преломляются с дисперсией сквозь жидкие перешейки и капли.
-                    </p>
 
-                    <div class="form-grid-2">
-                        <div class="form-row">
-                            <label>Слой размещения</label>
-                            <select id="selTextDepth" class="select-input">
-                                <option value="front">Поверх блобов</option>
-                                <option value="behind">За стеклом (Линза)</option>
+                    <!-- 1-Click Poster Text Templates -->
+                    <div class="text-template-pills" id="textTemplateGroup">
+                        <button type="button" class="tpl-pill" data-title="BIO—SYNTHESIS" data-sub="ORGANICA // VOL. 04" data-depth="behind">Bio-Synth</button>
+                        <button type="button" class="tpl-pill" data-title="LIQUID\nMATTER" data-sub="MOTION SYSTEM // 01" data-depth="front">Liquid</button>
+                        <button type="button" class="tpl-pill" data-title="MALEEWICH\nARCHIVE" data-sub="SPECIMEN // 2026" data-depth="behind">Archive</button>
+                    </div>
+
+                    <div class="prop-grid-2">
+                        <div class="field-box">
+                            <label>Слой рендера</label>
+                            <select id="selTextDepth" class="studio-select">
+                                <option value="front">Поверх стекла</option>
+                                <option value="behind">За стеклом (Преломление)</option>
                             </select>
                         </div>
-                        <div class="form-row">
-                            <label>Шрифт</label>
-                            <select id="selFontFamily" class="select-input">
-                                <option value="Syne, sans-serif">Syne (Арт)</option>
+                        <div class="field-box">
+                            <label>Гарнитура</label>
+                            <select id="selFontFamily" class="studio-select">
+                                <option value="Syne, sans-serif">Syne Display</option>
                                 <option value="Unbounded, sans-serif">Unbounded</option>
                                 <option value="Space Grotesk, sans-serif">Space Grotesk</option>
                                 <option value="Inter, sans-serif">Inter</option>
@@ -544,153 +607,130 @@
                         </div>
                     </div>
 
-                    <div class="form-row">
-                        <label>Заголовок (поддерживает перенос строки)</label>
-                        <textarea id="inpPostTitle" rows="2" class="text-input">BIO—SYNTHESIS</textarea>
+                    <div class="field-box">
+                        <label>Заголовок</label>
+                        <textarea id="inpPostTitle" rows="2" class="studio-input">BIO—SYNTHESIS</textarea>
                     </div>
 
-                    <div class="form-row">
-                        <label>Подзаголовок / Тег</label>
-                        <input type="text" id="inpPostSub" class="text-input" value="ORGANICA // VOL. 04" />
+                    <div class="field-box">
+                        <label>Индекс / Подзаголовок</label>
+                        <input type="text" id="inpPostSub" class="studio-input" value="ORGANICA // VOL. 04" />
                     </div>
 
-                    <div class="slider-grid-2">
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Кегль заголовка</span>
-                                <span id="valFontSize" class="mono-val">64px</span>
-                            </div>
+                    <div class="prop-grid-2">
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Заголовок</span><span id="valFontSize" class="mono-val">64px</span></div>
                             <input type="range" id="rngFontSize" min="24" max="160" step="2" value="64" data-default="64" />
                         </div>
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Кегль тега</span>
-                                <span id="valSubFontSize" class="mono-val">18px</span>
-                            </div>
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Подзаголовок</span><span id="valSubFontSize" class="mono-val">18px</span></div>
                             <input type="range" id="rngSubFontSize" min="10" max="48" step="1" value="18" data-default="18" />
                         </div>
                     </div>
 
-                    <div class="slider-grid-2">
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Отступ X</span>
-                                <span id="valTextX" class="mono-val">8%</span>
-                            </div>
+                    <div class="prop-grid-2">
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Позиция X</span><span id="valTextX" class="mono-val">8%</span></div>
                             <input type="range" id="rngTextX" min="0.04" max="0.96" step="0.01" value="0.08" data-default="0.08" />
                         </div>
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Отступ Y</span>
-                                <span id="valTextY" class="mono-val">10%</span>
-                            </div>
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Позиция Y</span><span id="valTextY" class="mono-val">10%</span></div>
                             <input type="range" id="rngTextY" min="0.05" max="0.92" step="0.01" value="0.10" data-default="0.10" />
                         </div>
                     </div>
 
-                    <div class="color-row-grid">
-                        <div class="form-row" style="flex:1;">
+                    <div class="prop-grid-3-mixed">
+                        <div class="field-box">
                             <label>Выравнивание</label>
-                            <select id="selTextAlign" class="select-input">
+                            <select id="selTextAlign" class="studio-select">
                                 <option value="left">Слева</option>
-                                <option value="center">По центру</option>
+                                <option value="center">Центр</option>
                                 <option value="right">Справа</option>
                             </select>
                         </div>
-                        <div class="color-field" style="flex:0.8;">
-                            <label>Цвет текста</label>
-                            <input type="color" id="colText" value="#ffffff" />
+                        <div class="field-box">
+                            <label>Цвет</label>
+                            <input type="color" id="colText" value="#ffffff" class="compact-color" />
                         </div>
-                        <div class="slider-group" style="flex:1;">
-                            <div class="slider-header">
-                                <span>Альфа</span>
-                                <span id="valTextOpacity" class="mono-val">0.95</span>
-                            </div>
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Альфа</span><span id="valTextOpacity" class="mono-val">0.95</span></div>
                             <input type="range" id="rngTextOpacity" min="0.0" max="1.0" step="0.05" value="0.95" data-default="0.95" />
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- TAB 3: Ambient Sound & Export Settings -->
+            <!-- TAB 3: Web-Audio Synth & Export Studio -->
             <div id="tabExport" class="tab-content">
-                <div class="inspector-section">
-                    <h3>Эмбиент-синтезатор (Web Audio)</h3>
-                    <p class="section-desc">
-                        Генерирует глубокий подводный суб-бас и био-пульсацию. Автоматически записывается в звуковую дорожку видео.
-                    </p>
+                <div class="dock-card">
+                    <div class="card-header">
+                        <span class="card-title">Процедурный био-синтезатор</span>
+                        <span class="pill-badge">Web Audio</span>
+                    </div>
 
-                    <div class="slider-grid-2">
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Громкость</span>
-                                <span id="valAudioVol" class="mono-val">0.65</span>
-                            </div>
+                    <div class="prop-grid-2">
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Громкость</span><span id="valAudioVol" class="mono-val">0.65</span></div>
                             <input type="range" id="rngAudioVol" min="0.0" max="1.0" step="0.02" value="0.65" data-default="0.65" />
                         </div>
-
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Суб-бас (Гц)</span>
-                                <span id="valAudioFreq" class="mono-val">55 Hz</span>
-                            </div>
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Суб-бас</span><span id="valAudioFreq" class="mono-val">55 Hz</span></div>
                             <input type="range" id="rngAudioFreq" min="36" max="95" step="1" value="55" data-default="55" />
                         </div>
                     </div>
 
-                    <div class="slider-grid-2">
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Пульсация LFO</span>
-                                <span id="valAudioPulse" class="mono-val">0.22 Hz</span>
-                            </div>
+                    <div class="prop-grid-2">
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Пульсация</span><span id="valAudioPulse" class="mono-val">0.22 Hz</span></div>
                             <input type="range" id="rngAudioPulse" min="0.05" max="1.2" step="0.02" value="0.22" data-default="0.22" />
                         </div>
-
-                        <div class="slider-group">
-                            <div class="slider-header">
-                                <span>Резонанс воды</span>
-                                <span id="valAudioRes" class="mono-val">0.55</span>
-                            </div>
+                        <div class="scrub-row compact">
+                            <div class="scrub-meta"><span>Резонанс</span><span id="valAudioRes" class="mono-val">0.55</span></div>
                             <input type="range" id="rngAudioRes" min="0.1" max="1.0" step="0.05" value="0.55" data-default="0.55" />
                         </div>
                     </div>
                 </div>
 
-                <div class="inspector-section">
-                    <h3>Экспорт видео и постеров</h3>
-                    <div class="form-row">
-                        <label>Длительность видеоролика</label>
-                        <select id="selRecordDuration" class="select-input">
-                            <option value="5">5 секунд (Превью / Stories)</option>
+                <div class="dock-card">
+                    <div class="card-header">
+                        <span class="card-title">Экспорт медиа (Full HD)</span>
+                    </div>
+
+                    <div class="field-box">
+                        <label>Хронометраж видеоролика</label>
+                        <select id="selRecordDuration" class="studio-select">
+                            <option value="5">5 секунд (Stories / Превью)</option>
                             <option value="10">10 секунд (Reels)</option>
                             <option value="15" selected>15 секунд (Полный бесшовный цикл)</option>
                         </select>
                     </div>
 
-                    <div class="export-buttons-stack">
-                        <button id="btnExportVideoMain" class="btn btn-primary btn-full">
-                            🎥 Записать и скачать видео (60 FPS)
+                    <div class="export-stack">
+                        <button id="btnExportVideoMain" class="btn-export-primary">
+                            <span class="rec-dot"></span>
+                            <span>Записать видео 60 FPS со звуком</span>
                         </button>
-                        <button id="btnExportPngMain" class="btn btn-secondary btn-full">
-                            📸 Скачать PNG постер (Full HD)
+                        <button id="btnExportPngMain" class="btn-export-secondary">
+                            Скачать PNG-постер в высоком разрешении
                         </button>
                     </div>
                 </div>
 
-                <div class="inspector-section">
-                    <h3>Шаблон проекта и ссылка</h3>
-                    <div class="export-buttons-row">
-                        <button id="btnSaveJson" class="btn btn-secondary" style="flex:1;">💾 Сохранить JSON</button>
-                        <label class="btn btn-secondary" style="flex:1; text-align:center; cursor:pointer;">
-                            📂 Загрузить JSON
+                <div class="dock-card">
+                    <div class="card-header">
+                        <span class="card-title">Файл проекта (.JSON)</span>
+                    </div>
+                    <div class="prop-grid-2">
+                        <button id="btnSaveJson" class="btn-export-secondary">Сохранить JSON</button>
+                        <label class="btn-export-secondary file-label">
+                            Открыть JSON
                             <input type="file" id="inpLoadJson" accept=".json" style="display:none;" />
                         </label>
                     </div>
                 </div>
             </div>
         </aside>
-    </main>
+    </div>
 
     <!-- Floating Toast Notification -->
     <div id="studioToast" class="studio-toast" aria-live="polite"></div>
