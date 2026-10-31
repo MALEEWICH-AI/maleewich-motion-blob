@@ -27,6 +27,7 @@ class MotionBlobStudio {
         this.currentPresetId = 'reference';
         this.aspect = '9:16';
         this.renderScale = 1.0;
+        this.blobFilter = 'all';
         this.params = {};
         this.blobs = [];
         this.selectedBlobIndex = 0;
@@ -202,6 +203,62 @@ class MotionBlobStudio {
         return tex;
     }
 
+    showToast(message) {
+        const toast = document.getElementById('studioToast');
+        if (!toast) return;
+        toast.textContent = message;
+        toast.classList.add('visible');
+        clearTimeout(this._toastTimer);
+        this._toastTimer = setTimeout(() => {
+            toast.classList.remove('visible');
+        }, 2200);
+    }
+
+    // Automatically computes a rich deep shadow color from any chosen core hex color
+    computeDeepShade(hex) {
+        const clean = (hex || '#9be600').replace('#', '');
+        const num = parseInt(clean, 16) || 0x9be600;
+        const r = Math.round(((num >> 16) & 255) * 0.18);
+        const g = Math.round(((num >> 8) & 255) * 0.18);
+        const b = Math.round((num & 255) * 0.18);
+        return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Returns true when studio background is bright/light so HUD & UI adapt contrast
+    isLightBackdrop() {
+        const checkHex = (hex) => {
+            const clean = (hex || '#020302').replace('#', '');
+            const num = parseInt(clean, 16) || 0;
+            const r = ((num >> 16) & 255) / 255;
+            const g = ((num >> 8) & 255) / 255;
+            const b = (num & 255) / 255;
+            return (0.299 * r + 0.587 * g + 0.114 * b);
+        };
+        const lumTop = checkHex(this.params.bgTopColor);
+        const lumGlow = checkHex(this.params.bgGlowColor);
+        return (lumTop > 0.35 || lumGlow > 0.45);
+    }
+
+    syncThemeAccent(hex) {
+        if (!hex) return;
+        const clean = hex.replace('#', '');
+        const num = parseInt(clean, 16) || 0x9be600;
+        const r = (num >> 16) & 255;
+        const g = (num >> 8) & 255;
+        const b = num & 255;
+        document.documentElement.style.setProperty('--accent', hex);
+        document.documentElement.style.setProperty('--accent-dim', `rgba(${r}, ${g}, ${b}, 0.15)`);
+        document.documentElement.style.setProperty('--border-subtle', `rgba(${r}, ${g}, ${b}, 0.28)`);
+        const hGreen = document.getElementById('hexGreenLabel');
+        const hDeep = document.getElementById('hexDeepLabel');
+        if (hGreen && this.params.greenColor) hGreen.textContent = this.params.greenColor.toUpperCase();
+        if (hDeep && this.params.greenDeepColor) hDeep.textContent = this.params.greenDeepColor.toUpperCase();
+        const hTop = document.getElementById('hexBgTopLabel');
+        const hGlow = document.getElementById('hexBgGlowLabel');
+        if (hTop && this.params.bgTopColor) hTop.textContent = this.params.bgTopColor.toUpperCase();
+        if (hGlow && this.params.bgGlowColor) hGlow.textContent = this.params.bgGlowColor.toUpperCase();
+    }
+
     setAspectRatio(aspect) {
         this.aspect = aspect;
         const card = document.getElementById('canvasCard');
@@ -218,6 +275,12 @@ class MotionBlobStudio {
             w = 1080; h = 1080;
             card.style.aspectRatio = '1 / 1';
         }
+
+        const sel = document.getElementById('aspectSelect');
+        if (sel) sel.value = aspect;
+        document.querySelectorAll('#aspectBtnGroup .seg-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.aspect === aspect);
+        });
 
         // Render at selected quality scale (1.0 Full HD 1080p by default, or 1.0 during recording)
         const scale = this.isRecording ? Math.max(this.renderScale, 1.0) : (this.renderScale || 1.0);
@@ -335,7 +398,7 @@ class MotionBlobStudio {
         const colorMode = this.hudConfig.colorMode || 'mixed';
 
         const acidColor = this.params.greenColor || '#9be600';
-        const whiteColor = '#f4f7f4';
+        const whiteColor = this.isLightBackdrop() ? '#121814' : '#f4f7f4';
         const accentCol = (colorMode === 'white') ? whiteColor : acidColor;
         const lineCol = (colorMode === 'acid') ? acidColor : whiteColor;
 
@@ -720,7 +783,7 @@ class MotionBlobStudio {
             oy = c1 * 0.020 + s2 * 0.010;
             oz = 0.0;
         } else if (blob.type === 1) {
-            const isSmallDroplet = (idx >= 7 && idx <= 9) ? 1.0 : 0.22;
+            const isSmallDroplet = (blob.radius < 0.095) ? 1.0 : 0.22;
             ox = Math.sin(loopT + p * 1.2) * env * 0.042 * isSmallDroplet;
             oy = Math.sin(loopT * 0.5) * Math.sin(loopT * 0.5) * (0.14 * isSmallDroplet) + c1 * 0.018;
         }
@@ -729,11 +792,11 @@ class MotionBlobStudio {
         const wy = blob.y + oy * blob.animAmp;
         const wz = blob.z + oz * blob.animAmp;
 
-        const radMul = 1.0 + 0.028 * Math.sin(loopT * 2.0 + blob.animPhase * tau) * env * blob.animAmp;
+        const radMul = 1.0 + 0.012 * blob.animAmp * Math.sin(loopT + blob.animPhase * 6.28318) * env;
         const rGlass = blob.radius * radMul;
 
-        const gx = wx + 0.006 * Math.sin(loopT + blob.animPhase * 6.28318) * env * blob.animAmp;
-        const gy = wy + 0.006 * Math.cos(loopT + blob.animPhase * 6.28318) * env * blob.animAmp;
+        const gx = wx + Math.cos(loopT + blob.animPhase * 6.28) * env * 0.010 * blob.animAmp;
+        const gy = wy + Math.sin(loopT + blob.animPhase * 6.28) * env * 0.012 * blob.animAmp;
         const gz = wz;
         const rGreen = rGlass * blob.greenRatio;
 
@@ -1073,17 +1136,33 @@ class MotionBlobStudio {
         container.innerHTML = '';
 
         this.blobs.forEach((b, idx) => {
+            if (this.blobFilter !== 'all' && String(b.type) !== String(this.blobFilter)) {
+                return;
+            }
             const typeMeta = BLOB_TYPES[b.type] || BLOB_TYPES[0];
             const item = document.createElement('div');
             item.className = `blob-item ${idx === this.selectedBlobIndex ? 'selected' : ''}`;
             item.innerHTML = `
                 <div class="blob-item-left">
-                    <span class="blob-type-dot" style="background:${typeMeta.color}"></span>
+                    <span class="blob-type-dot" style="background:${typeMeta.color}; color:${typeMeta.color}"></span>
                     <span class="blob-item-name">${b.name}</span>
                 </div>
-                <span class="blob-item-badge">${typeMeta.short}</span>
+                <div class="blob-item-right">
+                    <span class="blob-item-badge">${typeMeta.short}</span>
+                    <button type="button" class="blob-quick-del" title="Удалить узел">✕</button>
+                </div>
             `;
-            item.addEventListener('click', () => {
+            item.addEventListener('click', (e) => {
+                if (e.target.closest('.blob-quick-del')) {
+                    e.stopPropagation();
+                    if (this.blobs.length <= 1) return;
+                    this.blobs.splice(idx, 1);
+                    this.selectedBlobIndex = Math.min(this.selectedBlobIndex, this.blobs.length - 1);
+                    this.typographyDirty = true;
+                    this.renderBlobList();
+                    this.syncSelectedBlobUI();
+                    return;
+                }
                 this.selectedBlobIndex = idx;
                 this.renderBlobList();
                 this.syncSelectedBlobUI();
@@ -1095,6 +1174,10 @@ class MotionBlobStudio {
     syncSelectedBlobUI() {
         const b = this.blobs[this.selectedBlobIndex];
         if (!b) return;
+
+        const typeMeta = BLOB_TYPES[b.type] || BLOB_TYPES[0];
+        const dotEl = document.getElementById('selectedNodeDot');
+        if (dotEl) dotEl.style.background = typeMeta.color;
 
         document.getElementById('inpBlobName').value = b.name;
         document.getElementById('selBlobType').value = String(b.type);
@@ -1144,9 +1227,15 @@ class MotionBlobStudio {
         bindSlider('rngCamZoom', 'valCamZoom', p.camZoom || 1.0);
 
         document.getElementById('chkRockEnabled').checked = !!p.rockEnabled;
+        const rockWrap = document.getElementById('rockControlsWrap');
+        if (rockWrap) rockWrap.classList.toggle('disabled', !p.rockEnabled);
+
         document.getElementById('colGreen').value = p.greenColor;
         document.getElementById('colGreenDeep').value = p.greenDeepColor;
-        document.getElementById('colBgGlow').value = p.bgGlowColor;
+        const colBgTop = document.getElementById('colBgTop');
+        if (colBgTop) colBgTop.value = p.bgTopColor || '#020302';
+        document.getElementById('colBgGlow').value = p.bgGlowColor || '#121812';
+        this.syncThemeAccent(p.greenColor);
 
         // Motion Tracking HUD Greebles UI
         if (this.hudConfig) {
@@ -1187,10 +1276,28 @@ class MotionBlobStudio {
         // Preset & Aspect Controls
         document.getElementById('presetSelect').addEventListener('change', (e) => {
             this.loadPreset(e.target.value);
+            this.showToast(`Сцена: ${e.target.options[e.target.selectedIndex].text}`);
         });
 
         document.getElementById('aspectSelect').addEventListener('change', (e) => {
             this.setAspectRatio(e.target.value);
+        });
+
+        document.querySelectorAll('#aspectBtnGroup .seg-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.setAspectRatio(btn.dataset.aspect);
+                this.showToast(`Формат холста: ${btn.dataset.aspect}`);
+            });
+        });
+
+        // Node Filter Pills
+        document.querySelectorAll('#blobFilterGroup .filter-pill').forEach(pill => {
+            pill.addEventListener('click', () => {
+                document.querySelectorAll('#blobFilterGroup .filter-pill').forEach(p => p.classList.remove('active'));
+                pill.classList.add('active');
+                this.blobFilter = pill.dataset.filter;
+                this.renderBlobList();
+            });
         });
 
         const selQuality = document.getElementById('selRenderQuality');
@@ -1198,18 +1305,22 @@ class MotionBlobStudio {
             selQuality.addEventListener('change', (e) => {
                 this.renderScale = parseFloat(e.target.value) || 1.0;
                 this.setAspectRatio(this.aspect);
+                this.showToast(`Качество рендера: ${e.target.options[e.target.selectedIndex].text}`);
             });
         }
 
-        document.getElementById('btnRandomize').addEventListener('click', () => {
-            this.blobs = generateRandomComposition('bridge');
+        const triggerRandomize = () => {
+            this.blobs = generateRandomComposition();
             this.selectedBlobIndex = 0;
             this.trackerNodes = [];
             this.typographyDirty = true;
             this.renderBlobList();
             this.syncSelectedBlobUI();
             this.updateTypographyTextures();
-        });
+            this.showToast('🎲 Сгенерирована новая композиция');
+        };
+
+        document.getElementById('btnRandomize').addEventListener('click', triggerRandomize);
 
         const syncHudToggleUI = (enabled) => {
             this.hudConfig.enabled = enabled;
@@ -1365,6 +1476,8 @@ class MotionBlobStudio {
 
         document.getElementById('chkRockEnabled').addEventListener('change', (e) => {
             this.params.rockEnabled = e.target.checked;
+            const rockWrap = document.getElementById('rockControlsWrap');
+            if (rockWrap) rockWrap.classList.toggle('disabled', !e.target.checked);
         });
 
         // Color Palette Swatches
@@ -1376,19 +1489,81 @@ class MotionBlobStudio {
                 this.params.greenDeepColor = btn.dataset.deep;
                 document.getElementById('colGreen').value = this.params.greenColor;
                 document.getElementById('colGreenDeep').value = this.params.greenDeepColor;
+                this.syncThemeAccent(this.params.greenColor);
+                this.typographyDirty = true;
                 this.updateTypographyTextures();
             });
         });
 
         document.getElementById('colGreen').addEventListener('input', (e) => {
             this.params.greenColor = e.target.value;
+            // Automatically compute harmonious deep shadow hue so hole rims & bevels always match!
+            this.params.greenDeepColor = this.computeDeepShade(e.target.value);
+            document.getElementById('colGreenDeep').value = this.params.greenDeepColor;
+            document.querySelectorAll('.swatch-btn').forEach(b => b.classList.remove('active'));
+            this.syncThemeAccent(this.params.greenColor);
+            this.typographyDirty = true;
             this.updateTypographyTextures();
         });
         document.getElementById('colGreenDeep').addEventListener('input', (e) => {
             this.params.greenDeepColor = e.target.value;
+            this.syncThemeAccent(this.params.greenColor);
         });
+
+        // Background Theme Presets (Dark & Light Studio Backdrops)
+        document.querySelectorAll('#bgPresetGroup .bg-pill').forEach(pill => {
+            pill.addEventListener('click', () => {
+                document.querySelectorAll('#bgPresetGroup .bg-pill').forEach(p => p.classList.remove('active'));
+                pill.classList.add('active');
+                this.params.bgTopColor = pill.dataset.top;
+                this.params.bgGlowColor = pill.dataset.glow;
+                const colBgTop = document.getElementById('colBgTop');
+                if (colBgTop) colBgTop.value = this.params.bgTopColor;
+                document.getElementById('colBgGlow').value = this.params.bgGlowColor;
+                this.syncThemeAccent(this.params.greenColor);
+                this.typographyDirty = true;
+                this.updateTypographyTextures();
+            });
+        });
+
+        const colBgTopEl = document.getElementById('colBgTop');
+        if (colBgTopEl) {
+            colBgTopEl.addEventListener('input', (e) => {
+                this.params.bgTopColor = e.target.value;
+                document.querySelectorAll('#bgPresetGroup .bg-pill').forEach(p => p.classList.remove('active'));
+                this.syncThemeAccent(this.params.greenColor);
+                this.typographyDirty = true;
+                this.updateTypographyTextures();
+            });
+        }
+
         document.getElementById('colBgGlow').addEventListener('input', (e) => {
             this.params.bgGlowColor = e.target.value;
+            document.querySelectorAll('#bgPresetGroup .bg-pill').forEach(p => p.classList.remove('active'));
+            this.syncThemeAccent(this.params.greenColor);
+            this.typographyDirty = true;
+            this.updateTypographyTextures();
+        });
+
+        // Double-click any range slider with data-default to reset to default value
+        document.querySelectorAll('input[type="range"][data-default]').forEach(slider => {
+            slider.addEventListener('dblclick', () => {
+                slider.value = slider.dataset.default;
+                slider.dispatchEvent(new Event('input', { bubbles: true }));
+                this.showToast('Ползунок сброшен к стандарту');
+            });
+        });
+
+        // Global Keyboard Shortcuts (Space = Play/Pause, R = Randomize)
+        window.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+            if (e.code === 'Space') {
+                e.preventDefault();
+                document.getElementById('btnPlayPause').click();
+            } else if (e.code === 'KeyR' && !e.metaKey && !e.ctrlKey) {
+                e.preventDefault();
+                triggerRandomize();
+            }
         });
 
         // Motion Tracking HUD Controls
@@ -1528,7 +1703,8 @@ class MotionBlobStudio {
         btnAudio.addEventListener('click', async () => {
             const active = await this.synth.toggle();
             btnAudio.classList.toggle('active', active);
-            btnAudio.textContent = active ? '🔊 Звук: Вкл' : '🔇 Звук: Выкл';
+            btnAudio.textContent = active ? '🔊 Звук' : '🔇 Звук';
+            this.showToast(active ? '🔊 Эмбиент-синтезатор включен' : '🔇 Звук выключен');
         });
 
         document.getElementById('rngAudioVol').addEventListener('input', (e) => {
@@ -1559,6 +1735,7 @@ class MotionBlobStudio {
             link.download = `maleewich_blob_${Date.now()}.png`;
             link.href = this.glCanvas.toDataURL('image/png');
             link.click();
+            this.showToast('📸 PNG-постер сохранен');
         };
         document.getElementById('btnSnapshot').addEventListener('click', downloadPng);
         document.getElementById('btnExportPngMain').addEventListener('click', downloadPng);
@@ -1593,7 +1770,8 @@ class MotionBlobStudio {
                         await navigator.clipboard.writeText(url);
                     }
                     const origText = btnShareLink.innerHTML;
-                    btnShareLink.innerHTML = '✅ Скопировано!';
+                    btnShareLink.innerHTML = '✅ Скопировано';
+                    this.showToast('🔗 Ссылка на сцену скопирована в буфер обмена');
                     setTimeout(() => { btnShareLink.innerHTML = origText; }, 2000);
                 } catch (err) {
                     console.error('Ошибка копирования ссылки:', err);

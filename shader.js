@@ -251,7 +251,7 @@ vec3 getAnimatedBlobPos(int idx, vec3 basePos, float amp, float phase, float typ
         offset.z = 0.0;
     } else if (type > 0.5 && type < 1.5) {
         // Type 1: Floating droplets weightless vertical drift (matching ref_01.png -> ref_03.png)
-        float isSmallDroplet = (idx >= 7 && idx <= 9) ? 1.0 : 0.22;
+        float isSmallDroplet = (uBlobPosRad[idx].w < 0.095) ? 1.0 : 0.22;
         offset.x = sin(loopT + p * 1.2) * env * 0.042 * isSmallDroplet;
         offset.y = sin(loopT * 0.5) * sin(loopT * 0.5) * (0.14 * isSmallDroplet) + c1 * 0.018;
     }
@@ -333,7 +333,8 @@ float mapGlassOnly(vec3 p) {
             vec2 br = sdHyperbolicBridge(p + warp * 0.35, gAnimPosRad[0].xyz, bPos, gAnimPosRad[2].xyz, rOuter, meta.y);
             dGlass = smin(dGlass, br.x, uSmoothGlass * 0.92);
         } else {
-            float k = (rOuter < 0.11 || rOuter > 0.31) ? 0.006 : uSmoothGlass;
+            bool isSeparateSphere = (type > 0.5 && (rOuter < 0.095 || rOuter > 0.31)) || (type < 0.5 && meta.y < 0.05);
+            float k = isSeparateSphere ? 0.006 : uSmoothGlass;
             float dg = length(pWarped - bPos) - rOuter;
             dGlass = smin(dGlass, dg, k);
         }
@@ -384,7 +385,7 @@ float mapGreenOnly(vec3 p) {
                     vec2 br = sdHyperbolicBridge(p + warp * 0.35, gAnimPosRad[0].xyz, bPos, gAnimPosRad[2].xyz, rOuter, greenRatio);
                     dGreenRaw = smin(dGreenRaw, br.y, uSmoothGreen * 0.75);
                 }
-            } else if (greenRatio > 0.01 && rOuter <= 0.31) {
+            } else if (greenRatio > 0.04) {
                 vec4 grAnim = gGreenPosRad[i];
                 float dgr = length(pWarped - grAnim.xyz) - grAnim.w;
                 dGreenRaw = smin(dGreenRaw, dgr, uSmoothGreen * 1.05);
@@ -420,7 +421,7 @@ vec3 mapBlobsFull(vec3 p) {
         } else if (type > 1.5) {
             dGreenRaw = smin(dGreenRaw, length(pWarped - bPos) - rOuter, uSmoothGreen * 1.05);
         } else if (type > 0.5) {
-            float k = (rOuter < 0.11 || rOuter > 0.31) ? 0.006 : uSmoothGlass;
+            float k = (rOuter < 0.095 || rOuter > 0.31) ? 0.006 : uSmoothGlass;
             dGlass = smin(dGlass, length(pWarped - bPos) - rOuter, k);
         } else {
             float greenRatio = meta.y;
@@ -431,9 +432,9 @@ vec3 mapBlobsFull(vec3 p) {
                     dGreenRaw = smin(dGreenRaw, br.y, uSmoothGreen * 0.75);
                 }
             } else {
-                float k = (rOuter < 0.11 || rOuter > 0.31) ? 0.006 : uSmoothGlass;
+                float k = (greenRatio < 0.05) ? 0.006 : uSmoothGlass;
                 dGlass = smin(dGlass, length(pWarped - bPos) - rOuter, k);
-                if (greenRatio > 0.01 && rOuter <= 0.31) {
+                if (greenRatio > 0.04) {
                     vec4 grAnim = gGreenPosRad[i];
                     dGreenRaw = smin(dGreenRaw, length(pWarped - grAnim.xyz) - grAnim.w, uSmoothGreen * 1.05);
                 }
@@ -534,9 +535,16 @@ vec3 calcNormalRock(vec3 p) {
 
 // Out-of-Focus (Bokeh DOF) Background Rock Ridge + Bokeh Droplet + Studio Backdrop
 vec3 sampleBackgroundWithDOF(vec2 uv, vec2 screenUv, bool includeBackText) {
-    // 1. Pitch-black Octane studio backdrop
-    float glow = exp(-length(screenUv - vec2(0.74, 0.38)) * 3.2);
-    vec3 bg = mix(uBgTopColor, uBgGlowColor, clamp(glow * 0.40, 0.0, 1.0));
+    // 1. Studio backdrop (supports both deep Octane black and bright editorial light backdrops)
+    float glow = exp(-length(screenUv - vec2(0.62, 0.42)) * 1.85);
+    float glowLum = dot(uBgGlowColor, vec3(0.299, 0.587, 0.114));
+    float topLum  = dot(uBgTopColor, vec3(0.299, 0.587, 0.114));
+    // If user brightened uBgGlowColor while uBgTopColor remained near-black, smoothly lift base backdrop too
+    vec3 effectiveTop = (glowLum > 0.12 && topLum < 0.02)
+        ? mix(uBgTopColor, uBgGlowColor * 0.72, smoothstep(0.12, 0.55, glowLum))
+        : uBgTopColor;
+    float glowStrength = mix(0.45, 0.82, smoothstep(0.05, 0.40, glowLum));
+    vec3 bg = mix(effectiveTop, uBgGlowColor, clamp(glow * glowStrength, 0.0, 1.0));
 
     // 2. Out-of-focus (DOF blurred) diagonal background rock ridge
     if (uRockEnabled > 0.5) {
@@ -699,7 +707,7 @@ vec3 shadeRock(vec3 p, vec3 rd, vec3 n) {
                          * smoothstep(0.45, 0.72, noise3D(p * 24.0 + 1.5));
 
         float mossTotal = (dropMask * 1.40 + fineSpecks * (0.35 + 1.25 * creviceBand)) * regionFocus;
-        vec3 neonMoss = mix(uGreenColor, vec3(0.96, 1.0, 0.18), 0.45);
+        vec3 neonMoss = clamp(mix(uGreenColor * 1.32, vec3(1.0), 0.18), 0.0, 1.0);
         col = mix(col, neonMoss * (0.60 + 0.65 * diffKey), clamp(mossTotal * uMossIntensity, 0.0, 1.0));
     }
 
@@ -879,7 +887,7 @@ vec2 sampleCoreGreebles(vec3 p, vec3 nGreen, float dChamber) {
     return vec2(clamp(stampMask, 0.0, 1.0), visFade);
 }
 
-// Shade Perforated Smooth Acid-Green Shell (Rich 3D Octane Subsurface Scattering + Core Surface Markings + Rounded Bevel Lip)
+// Shade Perforated Smooth Bio-Core Shell (Rich 3D Octane Subsurface Scattering + Core Surface Markings + Hue-Adaptive Bevel Lip)
 vec3 shadeGreenCore(vec3 p, vec3 rdIn, vec3 nGreen, float dChamber) {
     if (dChamber < uSmoothCavity) {
         vec3 nCh = calcNormalChamber(p);
@@ -896,13 +904,17 @@ vec3 shadeGreenCore(vec3 p, vec3 rdIn, vec3 nGreen, float dChamber) {
     float thicknessProbe = clamp(-mapGreenOnly(p - nGreen * 0.085) / 0.085, 0.0, 1.0);
     float sss = 1.0 - thicknessProbe * 0.75;
 
-    vec3 topChartreuse = vec3(0.84, 1.0, 0.08);
-    vec3 midLime       = uGreenColor * 0.76;
-    vec3 deepOlive     = uGreenDeepColor * 0.20;
+    // Derive highlight, midtone, and deep shadow 100% from uGreenColor & uGreenDeepColor (no hardcoded yellow-green!)
+    float maxCh = max(max(uGreenColor.r, uGreenColor.g), max(uGreenColor.b, 0.001));
+    vec3 normHue = uGreenColor / maxCh;
+    vec3 topHighlightCol = clamp(uGreenColor * 1.42 + normHue * 0.14 + vec3(0.08), 0.0, 1.0);
+    vec3 midToneCol      = uGreenColor * 0.82;
+    // Blend uGreenDeepColor with uGreenColor so hole rims & shadows ALWAYS visibly shift hue with uGreenColor!
+    vec3 deepShadowCol   = mix(uGreenDeepColor * 0.35, uGreenColor * 0.24, 0.72);
 
-    vec3 col = mix(deepOlive, midLime, smoothstep(0.04, 0.60, wrapDiff));
+    vec3 col = mix(deepShadowCol, midToneCol, smoothstep(0.02, 0.58, wrapDiff));
     float topHighlight = pow(wrapDiff, 2.2) * smoothstep(-0.08, 0.52, nGreen.y);
-    col = mix(col, topChartreuse, clamp(topHighlight * (0.78 + 0.32 * sss), 0.0, 1.0));
+    col = mix(col, topHighlightCol, clamp(topHighlight * (0.78 + 0.32 * sss), 0.0, 1.0));
 
     // Apply sparse technical text markings & icons attached to the 3D core surface
     float detailStrength = clamp(uCoreDetail, 0.0, 2.0);
@@ -910,21 +922,26 @@ vec3 shadeGreenCore(vec3 p, vec3 rdIn, vec3 nGreen, float dChamber) {
         vec2 markings = sampleCoreGreebles(p, nGreen, dChamber);
         float m = clamp(markings.x * min(detailStrength, 1.35), 0.0, 1.0);
         if (m > 0.001) {
-            // Subtle dark-olive contrast backing + luminous pale-lime/white technical screenprint ink
+            // Subtle dark contrast backing + luminous hue-tinted technical screenprint ink
             col *= (1.0 - m * 0.28);
-            vec3 stampInk = vec3(0.97, 1.0, 0.80);
+            vec3 stampInk = mix(vec3(0.96, 0.98, 0.96), topHighlightCol, 0.28);
             col = mix(col, stampInk, m * 0.82);
         }
     }
 
     float bottomRim = pow(max(dot(nGreen, lightBottom), 0.0), 2.0) * (1.0 - max(dot(nGreen, -rdIn), 0.0));
-    col += mix(uGreenColor, vec3(0.85, 0.95, 0.10), 0.4) * bottomRim * 0.34;
+    col += topHighlightCol * bottomRim * 0.34;
 
-    // Subtle dark olive 3D bevel rim right around each circular window cut
-    float cutShadow = smoothstep(0.0, 0.016, dChamber);
-    float outerLip  = smoothstep(0.006, 0.018, dChamber) * (1.0 - smoothstep(0.018, 0.042, dChamber));
-    col *= (0.06 + 0.94 * cutShadow);
-    col += topChartreuse * outerLip * 0.16;
+    // Hue-adaptive 3D bevel rim right around each circular window cut (rich subsurface glow in uGreenColor!)
+    float bevelBand = 1.0 - smoothstep(0.0, max(uSmoothCavity * 1.15, 0.028), dChamber);
+    vec3 holeRimHue = mix(uGreenColor * 0.68, topHighlightCol, 0.38);
+    col = mix(col, holeRimHue, bevelBand * 0.52);
+
+    float cutShadow = smoothstep(0.0, 0.014, dChamber);
+    float outerLip  = smoothstep(0.004, 0.018, dChamber) * (1.0 - smoothstep(0.018, 0.045, dChamber));
+    vec3 innerLipCol = mix(uGreenDeepColor * 0.45, uGreenColor * 0.28, 0.75);
+    col = mix(innerLipCol, col, 0.22 + 0.78 * cutShadow);
+    col += topHighlightCol * outerLip * 0.26;
 
     return col;
 }
@@ -1052,25 +1069,54 @@ void main() {
         float glassBubbles = sparkleMicroBubbles(pGlass + rdIn * 0.05, uBubbleDensity)
                            + sparkleMicroBubbles(pGlass + rdIn * 0.13, uBubbleDensity * 0.95) * 0.85;
 
+        // Hue-adaptive caustic tint derived 100% from uGreenColor
+        float maxCh = max(max(uGreenColor.r, uGreenColor.g), max(uGreenColor.b, 0.001));
+        vec3 causticTint = clamp(uGreenColor * 1.38 + (uGreenColor / maxCh) * 0.12 + vec3(0.08), 0.0, 1.0);
+
+        // Refracted studio backdrop along rdIn (enables crystal-clear transparent glass on light & colored backgrounds!)
+        vec2 refrOffset = (rdIn.xy - rd.xy) * (0.18 + 0.24 * clamp(glassThickness, 0.0, 0.6));
+        vec2 refrUv = uv + refrOffset * 1.45;
+        vec2 refrScreenUv = clamp(screenUv + refrOffset, 0.0, 1.0);
+        float glowRefr = exp(-length(refrScreenUv - vec2(0.62, 0.42)) * 1.85);
+        float glowLum  = dot(uBgGlowColor, vec3(0.299, 0.587, 0.114));
+        float topLum   = dot(uBgTopColor, vec3(0.299, 0.587, 0.114));
+        vec3 effTop    = (glowLum > 0.12 && topLum < 0.02)
+            ? mix(uBgTopColor, uBgGlowColor * 0.72, smoothstep(0.12, 0.55, glowLum))
+            : uBgTopColor;
+        float glowStr  = mix(0.45, 0.82, smoothstep(0.05, 0.40, glowLum));
+        vec3 cleanBackdrop = mix(effTop, uBgGlowColor, clamp(glowRefr * glowStr, 0.0, 1.0));
+        float bgLum = dot(cleanBackdrop, vec3(0.299, 0.587, 0.114));
+        float isLightBg = smoothstep(0.02, 0.30, bgLum);
+        vec3 refrBg = mix(sampleBackgroundWithDOF(refrUv, refrScreenUv, false), cleanBackdrop, isLightBg * 0.88);
+
         vec3 interiorColor = vec3(0.0);
 
         if (internalHit == 1) {
-            // 1. Hit the smooth Acid-Green Core outside the circular apertures!
+            // 1. Hit the smooth Bio-Core outside the circular apertures!
             vec3 pGr = pEnter + rdIn * tHitIn;
             vec3 nGr = calcNormalGreen(pGr);
             vec3 coreCol = shadeGreenCore(pGr, rdIn, nGr, dChAtHit);
-            // Smooth grazing silhouette anti-aliasing where the internal green core curves away into clear glass
+            // Smooth grazing silhouette anti-aliasing where the internal core curves away into clear glass
             float coreGrazingAA = smoothstep(0.02, 0.22, max(dot(nGr, -rdIn), 0.0));
-            vec3 edgeCaustic = mix(vec3(0.0004, 0.0006, 0.0004), mix(uGreenColor, vec3(0.98, 1.0, 0.28), 0.48) * 0.65, 0.75);
+            vec3 edgeCaustic = mix(refrBg * 0.85 + vec3(0.0004, 0.0006, 0.0004), causticTint * 0.75, 0.72);
             interiorColor = mix(edgeCaustic, coreCol, coreGrazingAA);
-            interiorColor += vec3(0.95, 1.0, 0.90) * glassBubbles * 0.40;
+            interiorColor += vec3(0.95, 1.0, 0.94) * glassBubbles * 0.40;
         } else {
-            // 2. Unified Dark-Centered Octane Glass & Pitch-Black Circular Window Interior:
-            //    Zero seam between Window 2 and the Bridge, or between Window 5 and the Upper Glass Dome!
-            interiorColor = vec3(0.0004, 0.0006, 0.0004);
+            // 2. Unified Refractive Glass & Circular Window Interior:
+            //    On dark backgrounds (refrBg ~ 0), stays deep Octane black;
+            //    On light/colored backgrounds, transmits bright, crystal-clear refracted studio backdrop!
+            float insideWindow = 1.0 - smoothstep(-0.015, 0.015, minChamberDist);
+
+            // Luminous crystal-clear glass lens transmittance on light backgrounds (never dark or smoky!)
+            float lensEdge = smoothstep(0.02, 0.24, ndv);
+            float clearGlassTrans = mix(0.92, 1.04, lensEdge);
+            float windowTrans = mix(0.18, 0.92, isLightBg);
+            vec3 glassTint = mix(vec3(1.0), clamp(uGreenColor * 0.55 + vec3(0.65), 0.0, 1.0), 0.18 * (1.0 - lensEdge));
+            vec3 transmittedBg = refrBg * glassTint * clearGlassTrans * mix(1.0, windowTrans, insideWindow);
+
+            interiorColor = max(transmittedBg, vec3(0.0004, 0.0006, 0.0004));
 
             // Physical RGB Chromatic Dispersion Refraction of Behind-Glass HUD & Typography through clear glass
-            vec2 refrOffset = (rdIn.xy - rd.xy) * (0.16 + 0.22 * clamp(glassThickness, 0.0, 0.6));
             vec2 baseBackUv = vec2(screenUv.x, 1.0 - screenUv.y) + vec2(refrOffset.x, -refrOffset.y);
             vec2 dispShift = vec2(refrOffset.x, -refrOffset.y) * (0.18 * uGlassDispersion);
             float bR = texture(uTextBackTex, clamp(baseBackUv + dispShift, 0.0, 1.0)).r;
@@ -1079,38 +1125,39 @@ void main() {
             float transGlass = exp(-glassThickness * 1.40) * (1.0 - smoothstep(0.0, 0.02, -minChamberDist) * 0.65);
             interiorColor = mix(interiorColor, vec3(bR, bG.g, bB) * 0.78, bG.a * transGlass);
 
-            float insideWindow = 1.0 - smoothstep(-0.015, 0.015, minChamberDist);
-
             // A. Smooth smoky-silver outer glass curvature near grazing angles (left rim of Window 1 & Upper Dome!)
             float grazingGlass = pow(clamp(1.0 - ndv, 0.0, 1.0), 2.8);
             interiorColor += vec3(0.26, 0.29, 0.27) * grazingGlass * 0.32 * insideWindow;
 
             // B. Signature White C-Shaped Meniscus Reflection on the right side of Window 2
-            //    Anchored to Window 2 (blob 11) precomputed animated position so it stays locked during the 15s loop!
-            vec3 w11Pos = (uBlobCount > 11)
-                ? gAnimPosRad[11].xyz
-                : vec3(-0.19, -0.19, 0.14);
-            vec2 cCenter = w11Pos.xy + vec2(0.075, 0.005);
-            float dRightCrescent = length((pGlass.xy - cCenter) / vec2(0.042, 0.068));
-            float cArcRing = smoothstep(0.62, 0.88, dRightCrescent) * (1.0 - smoothstep(0.88, 1.08, dRightCrescent));
-            float cArcMain = cArcRing * smoothstep(cCenter.x - 0.010, cCenter.x + 0.025, pGlass.x);
+            //    Only rendered when blob 11 is an active window cavity (type > 2.5)
+            if (uBlobCount > 11 && uBlobMeta[11].x > 2.5) {
+                vec3 w11Pos = gAnimPosRad[11].xyz;
+                vec2 cCenter = w11Pos.xy + vec2(0.075, 0.005);
+                float dRightCrescent = length((pGlass.xy - cCenter) / vec2(0.042, 0.068));
+                float cArcRing = smoothstep(0.62, 0.88, dRightCrescent) * (1.0 - smoothstep(0.88, 1.08, dRightCrescent));
+                float cArcMain = cArcRing * smoothstep(cCenter.x - 0.010, cCenter.x + 0.025, pGlass.x);
 
-            float dLowerDash = length((pGlass.xy - (w11Pos.xy + vec2(0.052, -0.068))) / vec2(0.022, 0.009));
-            float cArcLower = 1.0 - smoothstep(0.45, 1.0, dLowerDash);
-            interiorColor += vec3(0.96, 1.0, 0.96) * (cArcMain * 1.30 + cArcLower * 0.88);
+                float dLowerDash = length((pGlass.xy - (w11Pos.xy + vec2(0.052, -0.068))) / vec2(0.022, 0.009));
+                float cArcLower = 1.0 - smoothstep(0.45, 1.0, dLowerDash);
+                interiorColor += vec3(0.96, 1.0, 0.96) * (cArcMain * 1.30 + cArcLower * 0.88);
+            }
 
-            // C. Tiny white micro-bubble ring 'o' inside the upper-left of Window 1 (in ref_01.png!)
-            float dRingLeft = abs(length(pGlass.xy - vec2(-0.472, -0.122)) - 0.0065);
-            interiorColor += vec3(0.82, 0.88, 0.82) * (1.0 - smoothstep(0.0005, 0.0022, dRingLeft));
+            // C. Tiny white micro-bubble ring 'o' anchored to Window 1 (blob 10) when active
+            if (uBlobCount > 10 && uBlobMeta[10].x > 2.5) {
+                vec2 ringCenter = gAnimPosRad[10].xy + vec2(-0.012, 0.078);
+                float dRingLeft = abs(length(pGlass.xy - ringCenter) - 0.0065);
+                interiorColor += vec3(0.82, 0.88, 0.82) * (1.0 - smoothstep(0.0005, 0.0022, dRingLeft));
+            }
 
-            // D. Tight yellow-green internal caustic glow ONLY right along the true green boundary (outside windows!)
+            // D. Tight hue-adaptive internal caustic glow right along the core boundary (outside windows!)
             float greenProximity = exp(-max(minGreenDist, 0.0) * 85.0);
-            vec3 causticTint = mix(uGreenColor, vec3(0.98, 1.0, 0.28), 0.48);
             interiorColor += causticTint * greenProximity * 0.80 * (1.0 - insideWindow * 0.85);
 
             // E. Bridge Waist Upper & Lower Hyperbolic Edge Caustics + Inner White Meniscus Lines
-            float isBridgeZone = smoothstep(-0.11, -0.04, pGlass.x) * (1.0 - smoothstep(0.14, 0.24, pGlass.x))
-                               * (1.0 - smoothstep(0.08, 0.20, abs(pGlass.y + 0.17)));
+            vec2 bridgeCenter = (uBlobCount > 1) ? gAnimPosRad[1].xy : vec2(0.0, -0.17);
+            float isBridgeZone = (1.0 - smoothstep(0.08, 0.22, abs(pGlass.x - bridgeCenter.x)))
+                               * (1.0 - smoothstep(0.08, 0.20, abs(pGlass.y - bridgeCenter.y)));
             if (isBridgeZone > 0.01) {
                 float neckEdgeWhite = 1.0 - smoothstep(0.20, 0.56, ndv);
                 float neckEdgeLime  = (1.0 - smoothstep(0.30, 0.68, ndv)) * smoothstep(0.12, 0.28, ndv);
@@ -1118,40 +1165,49 @@ void main() {
                 interiorColor += causticTint * neckEdgeLime * isBridgeZone * 0.52;
             }
 
-            // F. Warm olive-chartreuse inner glass wall rim on large corner spheres (Top-Right & Bottom-Right spheres!)
+            // F. Hue-adaptive inner glass wall rim on large corner spheres
             float cornerWall = (1.0 - smoothstep(0.14, 0.34, ndv)) * smoothstep(0.05, 0.14, ndv);
             float isCornerSphere = smoothstep(0.40, 0.56, abs(pGlass.y));
-            interiorColor += mix(uGreenDeepColor * 1.4, uGreenColor * 0.68, 0.48) * cornerWall * isCornerSphere * 0.75;
+            vec3 deepCornerHue = mix(uGreenDeepColor, uGreenColor * 0.18, 0.55);
+            interiorColor += mix(deepCornerHue * 1.4, uGreenColor * 0.68, 0.48) * cornerWall * isCornerSphere * 0.75;
 
-            // Soft diagonal studio reflection patch on Bottom-Right foreground sphere (at (0.245, -0.915) in ref_01.png!)
-            if (pGlass.y < -0.52 && pGlass.x > 0.05) {
-                vec2 fgUv = uv - vec2(0.245, -0.915);
-                vec2 fgRot = vec2(fgUv.x * 0.82 + fgUv.y * 0.57, -fgUv.x * 0.57 + fgUv.y * 0.82);
-                float dFgSpot = length(fgRot / vec2(0.036, 0.014));
-                interiorColor += vec3(0.95, 0.99, 0.95) * (1.0 - smoothstep(0.35, 1.0, dFgSpot)) * 0.95;
-            }
-
-            // G. Small dark-olive 3D internal glass vacuole tucked inside the Top-Right sphere (at (0.465, 0.725) in ref_01.png!)
-            if (pGlass.y > 0.50 && pGlass.x > 0.25) {
-                vec2 subDropUv = uv - vec2(0.465, 0.725);
-                vec2 rotUv = vec2(subDropUv.x * 0.86 + subDropUv.y * 0.50, -subDropUv.x * 0.50 + subDropUv.y * 0.86);
-                float dSub = length(rotUv / vec2(0.055, 0.090));
-                if (dSub < 1.0) {
-                    float leftCrescent  = smoothstep(0.58, 0.92, dSub) * (1.0 - smoothstep(0.86, 1.0, dSub)) * (1.0 - smoothstep(-0.03, 0.02, rotUv.x));
-                    float rightRim      = smoothstep(0.76, 0.94, dSub) * (1.0 - smoothstep(0.92, 1.0, dSub)) * smoothstep(-0.01, 0.04, rotUv.x);
-                    vec3 subCol = mix(vec3(0.0005, 0.0008, 0.0005), uGreenColor * 0.20, leftCrescent);
-                    subCol += vec3(0.22, 0.28, 0.16) * rightRim;
-                    float dRing = abs(length(uv - vec2(0.436, 0.768)) - 0.0062);
-                    subCol += vec3(0.85, 0.92, 0.82) * (1.0 - smoothstep(0.0006, 0.0024, dRing));
-                    interiorColor = mix(interiorColor, subCol, 1.0 - smoothstep(0.85, 1.0, dSub));
+            // Soft diagonal studio reflection patch anchored to lower corner glass sphere (blob 6)
+            if (uBlobCount > 6 && uBlobMeta[6].y < 0.05) {
+                vec2 b6Pos = gAnimPosRad[6].xy;
+                if (length(pGlass.xy - b6Pos) < gAnimPosRad[6].w * 1.05) {
+                    vec2 fgUv = pGlass.xy - (b6Pos + vec2(-0.145, 0.025));
+                    vec2 fgRot = vec2(fgUv.x * 0.82 + fgUv.y * 0.57, -fgUv.x * 0.57 + fgUv.y * 0.82);
+                    float dFgSpot = length(fgRot / vec2(0.036, 0.014));
+                    interiorColor += vec3(0.95, 0.99, 0.95) * (1.0 - smoothstep(0.35, 1.0, dFgSpot)) * 0.95;
                 }
             }
 
-            // H. Crisp Double-Wall Glass Meniscus Contour (the bright white/lime inner wall line on the Upper Right Glass Dome!)
-            float meniscusBand = (1.0 - smoothstep(0.23, 0.35, ndv)) * smoothstep(0.14, 0.23, ndv);
-            interiorColor += mix(vec3(0.92, 0.97, 0.92), causticTint, 0.25) * meniscusBand * (0.48 + 0.35 * uGlassDispersion) * (1.0 - isCornerSphere * 0.75) * (1.0 - insideWindow * 0.75);
+            // G. Small 3D internal glass vacuole anchored inside upper corner glass sphere (blob 5)
+            if (uBlobCount > 5 && uBlobMeta[5].y < 0.05) {
+                vec2 b5Pos = gAnimPosRad[5].xy;
+                if (length(pGlass.xy - b5Pos) < gAnimPosRad[5].w * 1.05) {
+                    vec2 vacCenter = b5Pos + vec2(0.045, -0.125);
+                    vec2 subDropUv = pGlass.xy - vacCenter;
+                    vec2 rotUv = vec2(subDropUv.x * 0.86 + subDropUv.y * 0.50, -subDropUv.x * 0.50 + subDropUv.y * 0.86);
+                    float dSub = length(rotUv / vec2(0.055, 0.090));
+                    if (dSub < 1.0) {
+                        float leftCrescent  = smoothstep(0.58, 0.92, dSub) * (1.0 - smoothstep(0.86, 1.0, dSub)) * (1.0 - smoothstep(-0.03, 0.02, rotUv.x));
+                        float rightRim      = smoothstep(0.76, 0.94, dSub) * (1.0 - smoothstep(0.92, 1.0, dSub)) * smoothstep(-0.01, 0.04, rotUv.x);
+                        vec3 subBase = mix(vec3(0.0005, 0.0008, 0.0005), refrBg * 0.88, isLightBg);
+                        vec3 subCol = mix(subBase, uGreenColor * 0.25, leftCrescent);
+                        subCol += mix(uGreenColor * 0.32, vec3(0.26), 0.45) * rightRim;
+                        float dRing = abs(length(pGlass.xy - (vacCenter + vec2(-0.029, 0.043))) - 0.0062);
+                        subCol += vec3(0.88, 0.92, 0.88) * (1.0 - smoothstep(0.0006, 0.0024, dRing));
+                        interiorColor = mix(interiorColor, subCol, 1.0 - smoothstep(0.85, 1.0, dSub));
+                    }
+                }
+            }
 
-            // I. Tiny yellow-green bottom caustic dot + bottom-right inner crescent inside small floating droplets!
+            // H. Crisp Double-Wall Glass Meniscus Contour
+            float meniscusBand = (1.0 - smoothstep(0.23, 0.35, ndv)) * smoothstep(0.14, 0.23, ndv);
+            interiorColor += mix(vec3(0.92, 0.97, 0.92), causticTint, 0.28) * meniscusBand * (0.48 + 0.35 * uGlassDispersion) * (1.0 - isCornerSphere * 0.75) * (1.0 - insideWindow * 0.75);
+
+            // I. Bottom caustic dot + bottom-right inner crescent inside small floating droplets!
             if (glassThickness < 0.14 && minChamberDist > 0.04) {
                 float bottomDot = (1.0 - smoothstep(-0.88, -0.58, nGlass.y)) * smoothstep(0.15, 0.52, ndv);
                 float innerArc  = smoothstep(0.28, 0.68, nGlass.x - nGlass.y) * (1.0 - smoothstep(0.22, 0.46, ndv)) * smoothstep(0.12, 0.22, ndv);
@@ -1159,19 +1215,21 @@ void main() {
                 interiorColor += vec3(0.95, 0.99, 0.95) * innerArc * 0.75;
             }
 
-            // J. Suspended sparkling white star-dust micro-bubbles inside clear glass & pitch-black windows!
-            interiorColor += vec3(0.95, 1.0, 0.94) * glassBubbles * 1.15;
+            // J. Suspended sparkling white star-dust micro-bubbles inside clear glass & windows!
+            interiorColor += vec3(0.95, 1.0, 0.95) * glassBubbles * 1.15;
         }
 
         // Outer Glass Surface Reflections: Rim-Hugging Curved Studio Softbox Crescents + Razor-Sharp Fresnel Rim
         vec3 refl = reflect(rd, nGlass);
         vec3 studioRefl = sampleStudioReflections(refl, ndv);
 
-        // Razor-sharp white + subtle lime outer glass contour rim
+        // Razor-sharp white + subtle hue-tinted outer glass contour rim
+        // On bright backgrounds (bgLum > 0.35), add a delicate optical inner edge right inside the Fresnel rim so bubbles stand out!
         float outerRim = smoothstep(0.30, 0.95, fresnel);
+        float darkOpticalEdge = smoothstep(0.12, 0.32, fresnel) * (1.0 - smoothstep(0.32, 0.58, fresnel)) * smoothstep(0.15, 0.65, bgLum);
         vec3 rimTint = mix(vec3(0.97, 1.0, 0.97), mix(vec3(1.0), uGreenColor, 0.35), 0.18);
 
-        finalColor = interiorColor;
+        finalColor = interiorColor * (1.0 - darkOpticalEdge * 0.26);
         finalColor = mix(finalColor, rimTint, clamp(outerRim * 0.86, 0.0, 0.94));
         finalColor += studioRefl;
     }

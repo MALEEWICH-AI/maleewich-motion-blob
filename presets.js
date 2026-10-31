@@ -255,132 +255,216 @@ window.BlobStudio.PRESETS = {
     }
 };
 
-// Procedural generator for creating brand-new blob arrangements in the same visual style
-window.BlobStudio.generateRandomComposition = function(style = 'bridge') {
-    const blobs = [];
+// Art-directed procedural generator for creating balanced 16-blob Octane compositions
+let _lastRandomArchetype = -1;
+window.BlobStudio.generateRandomComposition = function() {
     const rand = (min, max) => min + Math.random() * (max - min);
+    const round2 = (v) => Number(v.toFixed(2));
+    const round3 = (v) => Number(v.toFixed(3));
 
-    if (style === 'bridge') {
-        // Two main clusters connected by a stretched bridge + corner domes + droplets + cavities
-        const angle = rand(-0.45, 0.45);
-        const dist = rand(0.32, 0.38);
-        const lx = -Math.cos(angle) * dist;
-        const ly = -Math.sin(angle) * dist - 0.04;
-        const rx = Math.cos(angle) * dist;
-        const ry = Math.sin(angle) * dist - 0.02;
+    // Cycle across 4 distinct art-directed archetypes so every click looks fresh and intentional
+    let archetype = Math.floor(Math.random() * 4);
+    if (archetype === _lastRandomArchetype) {
+        archetype = (archetype + 1) % 4;
+    }
+    _lastRandomArchetype = archetype;
 
-        blobs.push({
-            name: 'Кластер А',
-            x: Number(lx.toFixed(2)),
-            y: Number(ly.toFixed(2)),
-            z: 0.0,
-            radius: Number(rand(0.24, 0.29).toFixed(2)),
-            type: 0,
-            greenRatio: Number(rand(0.76, 0.84).toFixed(2)),
-            animAmp: 0.85,
-            animPhase: Number(rand(0, 1).toFixed(2))
-        });
+    // Archetype definitions for primary lobes (indices 0..4):
+    // Index 0 = Left/Primary Lobe, Index 1 = Hyperbolic Bridge between 0 and 2, Index 2 = Right/Secondary Lobe,
+    // Index 3 = Third Lobe / Lower Cluster, Index 4 = Translucent Glass Dome (type 1)
+    let p0, p1, p2, p3, p4;
 
-        blobs.push({
-            name: 'Тонкая перетяжка (Мост)',
-            x: Number(((lx + rx) * 0.5 + rand(-0.03, 0.03)).toFixed(2)),
-            y: Number(((ly + ry) * 0.5 + rand(-0.03, 0.03)).toFixed(2)),
-            z: 0.0,
-            radius: Number(rand(0.048, 0.065).toFixed(3)),
-            type: 0,
-            greenRatio: 0.58,
-            animAmp: 0.70,
-            animPhase: Number(rand(0, 1).toFixed(2))
-        });
+    if (archetype === 0) {
+        // Archetype 0: Diagonal Symbiosis Bridge (Classic Octane twin-cluster with tilted bridge)
+        const tilt = rand(-0.22, 0.24);
+        const span = rand(0.35, 0.42);
+        const yBase = rand(-0.16, -0.02);
+        const lx = -span;
+        const ly = yBase - tilt;
+        const rx = span;
+        const ry = yBase + tilt * 0.85;
 
-        blobs.push({
-            name: 'Кластер Б (Верх)',
-            x: Number(rx.toFixed(2)),
-            y: Number((ry + 0.11).toFixed(2)),
-            z: 0.0,
-            radius: Number(rand(0.24, 0.28).toFixed(2)),
-            type: 0,
-            greenRatio: Number(rand(0.78, 0.84).toFixed(2)),
-            animAmp: 0.85,
-            animPhase: Number(rand(0, 1).toFixed(2))
-        });
+        p0 = { name: 'Левый био-кластер', x: round2(lx), y: round2(ly), z: 0.0, radius: round3(rand(0.24, 0.275)), type: 0, greenRatio: round2(rand(0.81, 0.86)), animAmp: 0.85, animPhase: round2(rand(0, 1)) };
+        p1 = { name: 'Стеклянный перешеек', x: round2((lx + rx) * 0.46), y: round2((ly + ry) * 0.5 + rand(-0.02, 0.02)), z: 0.0, radius: round3(rand(0.048, 0.060)), type: 0, greenRatio: 0.50, animAmp: 0.70, animPhase: round2(rand(0, 1)) };
+        p2 = { name: 'Правый верхний узел', x: round2(rx), y: round2(ry + 0.06), z: 0.0, radius: round3(rand(0.245, 0.275)), type: 0, greenRatio: round2(rand(0.83, 0.87)), animAmp: 0.85, animPhase: round2(rand(0, 1)) };
+        p3 = { name: 'Правый нижний узел', x: round2(rx + rand(0.02, 0.07)), y: round2(ry - 0.14), z: 0.0, radius: round3(rand(0.22, 0.255)), type: 0, greenRatio: round2(rand(0.82, 0.86)), animAmp: 0.80, animPhase: round2(rand(0, 1)) };
+        p4 = { name: 'Верхний купол стекла', x: round2(rx - 0.02), y: round2(ry + 0.17), z: 0.0, radius: round3(rand(0.24, 0.27)), type: 1, greenRatio: 0.0, animAmp: 0.75, animPhase: round2(rand(0, 1)) };
+    } else if (archetype === 1) {
+        // Archetype 1: Vertical Mitosis Cascade (Tall S-curve composition for 9:16 Reels)
+        const flip = Math.random() > 0.5 ? 1 : -1;
+        const lx = flip * rand(-0.30, -0.22);
+        const ly = rand(-0.22, -0.14);
+        const rx = -flip * rand(-0.30, -0.22);
+        const ry = rand(0.18, 0.26);
 
-        blobs.push({
-            name: 'Кластер Б (Низ)',
-            x: Number((rx + rand(-0.06, 0.06)).toFixed(2)),
-            y: Number((ry - 0.16).toFixed(2)),
-            z: 0.04,
-            radius: Number(rand(0.21, 0.26).toFixed(2)),
-            type: 0,
-            greenRatio: Number(rand(0.75, 0.82).toFixed(2)),
-            animAmp: 0.80,
-            animPhase: Number(rand(0, 1).toFixed(2))
-        });
+        p0 = { name: 'Нижнее ядро', x: round2(lx), y: round2(ly), z: 0.0, radius: round3(rand(0.245, 0.275)), type: 0, greenRatio: round2(rand(0.82, 0.86)), animAmp: 0.85, animPhase: round2(rand(0, 1)) };
+        p1 = { name: 'Диагональный мост', x: round2((lx + rx) * 0.5), y: round2((ly + ry) * 0.5), z: 0.0, radius: round3(rand(0.050, 0.062)), type: 0, greenRatio: 0.52, animAmp: 0.75, animPhase: round2(rand(0, 1)) };
+        p2 = { name: 'Верхнее ядро', x: round2(rx), y: round2(ry), z: 0.0, radius: round3(rand(0.25, 0.28)), type: 0, greenRatio: round2(rand(0.83, 0.87)), animAmp: 0.85, animPhase: round2(rand(0, 1)) };
+        p3 = { name: 'Боковой био-отросток', x: round2(rx + flip * 0.12), y: round2(ry - 0.13), z: 0.0, radius: round3(rand(0.21, 0.24)), type: 0, greenRatio: round2(rand(0.81, 0.85)), animAmp: 0.80, animPhase: round2(rand(0, 1)) };
+        p4 = { name: 'Купол оболочки', x: round2(rx), y: round2(ry + 0.14), z: 0.0, radius: round3(rand(0.25, 0.28)), type: 1, greenRatio: 0.0, animAmp: 0.75, animPhase: round2(rand(0, 1)) };
+    } else if (archetype === 2) {
+        // Archetype 2: Cellular Triptych (Three interconnected bio-chambers)
+        const lx = rand(-0.36, -0.30);
+        const ly = rand(-0.08, 0.04);
+        const rx = rand(0.30, 0.36);
+        const ry = rand(0.02, 0.12);
 
-        // Corner accent dome
-        const cornerSide = Math.random() > 0.5 ? 1 : -1;
-        blobs.push({
-            name: 'Угловой купол',
-            x: Number((cornerSide * rand(0.32, 0.42)).toFixed(2)),
-            y: Number(rand(0.72, 0.84).toFixed(2)),
-            z: -0.08,
-            radius: Number(rand(0.32, 0.38).toFixed(2)),
-            type: 0,
-            greenRatio: 0.55,
-            animAmp: 0.45,
-            animPhase: Number(rand(0, 1).toFixed(2))
-        });
+        p0 = { name: 'Левая био-сфера', x: round2(lx), y: round2(ly), z: 0.0, radius: round3(rand(0.24, 0.27)), type: 0, greenRatio: round2(rand(0.82, 0.86)), animAmp: 0.85, animPhase: round2(rand(0, 1)) };
+        p1 = { name: 'Центральный мост', x: round2((lx + rx) * 0.48), y: round2((ly + ry) * 0.5), z: 0.0, radius: round3(rand(0.052, 0.064)), type: 0, greenRatio: 0.54, animAmp: 0.75, animPhase: round2(rand(0, 1)) };
+        p2 = { name: 'Правая био-сфера', x: round2(rx), y: round2(ry), z: 0.0, radius: round3(rand(0.245, 0.275)), type: 0, greenRatio: round2(rand(0.82, 0.86)), animAmp: 0.85, animPhase: round2(rand(0, 1)) };
+        p3 = { name: 'Нижняя третья сфера', x: round2(rand(-0.05, 0.12)), y: round2(rand(-0.26, -0.20)), z: 0.0, radius: round3(rand(0.21, 0.24)), type: 0, greenRatio: round2(rand(0.80, 0.85)), animAmp: 0.85, animPhase: round2(rand(0, 1)) };
+        p4 = { name: 'Верхний купол стекла', x: round2(lx), y: round2(ly + 0.13), z: 0.0, radius: round3(rand(0.24, 0.265)), type: 1, greenRatio: 0.0, animAmp: 0.75, animPhase: round2(rand(0, 1)) };
+    } else {
+        // Archetype 3: Inverted Bridge (Large left double-cluster + right satellite sphere)
+        const lx = rand(-0.38, -0.32);
+        const ly = rand(-0.08, 0.02);
+        const rx = rand(0.32, 0.38);
+        const ry = rand(-0.18, -0.08);
 
-        // 3 Floating glass droplets
-        for (let i = 0; i < 3; i++) {
-            blobs.push({
-                name: `Капля стекла ${i + 1}`,
-                x: Number(rand(-0.26, 0.26).toFixed(2)),
-                y: Number(rand(-0.24, 0.32).toFixed(2)),
-                z: Number(rand(0.06, 0.16).toFixed(2)),
-                radius: Number(rand(0.028, 0.065).toFixed(3)),
-                type: 1,
-                greenRatio: 0.0,
-                animAmp: Number(rand(1.1, 1.4).toFixed(2)),
-                animPhase: Number(rand(0, 1).toFixed(2))
-            });
-        }
-
-        // 3 Glossy Black Internal Vacuoles inside the main lobes
-        blobs.push({
-            name: 'Черная сфера А',
-            x: Number((lx + rand(-0.10, 0.06)).toFixed(2)),
-            y: Number((ly + rand(-0.04, 0.04)).toFixed(2)),
-            z: 0.11,
-            radius: Number(rand(0.105, 0.130).toFixed(3)),
-            type: 3,
-            greenRatio: 0.0,
-            animAmp: 1.15,
-            animPhase: Number(rand(0, 1).toFixed(2))
-        });
-        blobs.push({
-            name: 'Черная сфера Б1',
-            x: Number((rx + rand(-0.06, 0.08)).toFixed(2)),
-            y: Number((ry + 0.06).toFixed(2)),
-            z: 0.12,
-            radius: Number(rand(0.10, 0.125).toFixed(3)),
-            type: 3,
-            greenRatio: 0.0,
-            animAmp: 1.15,
-            animPhase: Number(rand(0, 1).toFixed(2))
-        });
-        blobs.push({
-            name: 'Черная сфера Б2',
-            x: Number((rx + rand(-0.06, 0.08)).toFixed(2)),
-            y: Number((ry - 0.14).toFixed(2)),
-            z: 0.12,
-            radius: Number(rand(0.095, 0.120).toFixed(3)),
-            type: 3,
-            greenRatio: 0.0,
-            animAmp: 1.15,
-            animPhase: Number(rand(0, 1).toFixed(2))
-        });
+        p0 = { name: 'Правый спутник', x: round2(rx), y: round2(ry), z: 0.0, radius: round3(rand(0.235, 0.265)), type: 0, greenRatio: round2(rand(0.82, 0.86)), animAmp: 0.85, animPhase: round2(rand(0, 1)) };
+        p1 = { name: 'Натянутый перешеек', x: round2((lx + rx) * 0.52), y: round2((ly + ry) * 0.5), z: 0.0, radius: round3(rand(0.048, 0.058)), type: 0, greenRatio: 0.50, animAmp: 0.72, animPhase: round2(rand(0, 1)) };
+        p2 = { name: 'Левый верхний кластер', x: round2(lx), y: round2(ly + 0.07), z: 0.0, radius: round3(rand(0.25, 0.28)), type: 0, greenRatio: round2(rand(0.83, 0.87)), animAmp: 0.85, animPhase: round2(rand(0, 1)) };
+        p3 = { name: 'Левый нижний кластер', x: round2(lx - 0.04), y: round2(ly - 0.13), z: 0.0, radius: round3(rand(0.22, 0.25)), type: 0, greenRatio: round2(rand(0.82, 0.86)), animAmp: 0.80, animPhase: round2(rand(0, 1)) };
+        p4 = { name: 'Левый купол стекла', x: round2(lx), y: round2(ly + 0.17), z: 0.0, radius: round3(rand(0.245, 0.275)), type: 1, greenRatio: 0.0, animAmp: 0.75, animPhase: round2(rand(0, 1)) };
     }
 
+    const blobs = [p0, p1, p2, p3, p4];
+
+    // Indices 5 & 6: Framing clear-glass corner spheres (greenRatio = 0.0 so they act as pure dark-rimmed glass lenses)
+    const topCornerSide = (p2.x >= 0) ? 1 : -1;
+    blobs.push({
+        name: 'Верхняя угловая сфера',
+        x: round2(topCornerSide * rand(0.32, 0.44)),
+        y: round2(rand(0.76, 0.88)),
+        z: 0.0,
+        radius: round3(rand(0.33, 0.375)),
+        type: 0,
+        greenRatio: 0.0,
+        animAmp: 0.55,
+        animPhase: round2(rand(0, 1))
+    });
+    blobs.push({
+        name: 'Нижняя передняя сфера',
+        x: round2(rand(0.28, 0.42)),
+        y: round2(rand(-0.96, -0.88)),
+        z: 0.04,
+        radius: round3(rand(0.33, 0.365)),
+        type: 0,
+        greenRatio: 0.0,
+        animAmp: 0.50,
+        animPhase: round2(rand(0, 1))
+    });
+
+    // Indices 7, 8, 9: Three crisp floating glass satellite droplets placed in open negative space around the bridge
+    const bridgeX = p1.x;
+    const bridgeY = p1.y;
+    blobs.push({
+        name: 'Капля-спутник 1 (Центр)',
+        x: round2(bridgeX + rand(-0.06, 0.08)),
+        y: round2(bridgeY + rand(0.16, 0.23)),
+        z: 0.06,
+        radius: round3(rand(0.046, 0.058)),
+        type: 1,
+        greenRatio: 0.0,
+        animAmp: 1.25,
+        animPhase: round2(rand(0, 1))
+    });
+    blobs.push({
+        name: 'Капля-спутник 2 (Верх)',
+        x: round2(bridgeX + rand(0.06, 0.16)),
+        y: round2(bridgeY + rand(0.28, 0.36)),
+        z: 0.04,
+        radius: round3(rand(0.026, 0.036)),
+        type: 1,
+        greenRatio: 0.0,
+        animAmp: 1.35,
+        animPhase: round2(rand(0, 1))
+    });
+    blobs.push({
+        name: 'Капля-спутник 3 (Низ)',
+        x: round2(bridgeX + rand(-0.16, -0.06)),
+        y: round2(bridgeY - rand(0.16, 0.22)),
+        z: 0.06,
+        radius: round3(rand(0.022, 0.032)),
+        type: 1,
+        greenRatio: 0.0,
+        animAmp: 1.15,
+        animPhase: round2(rand(0, 1))
+    });
+
+    // Indices 10..15: Six internal circular window apertures (type 3) cleanly distributed across the main lobes
+    const side0 = (p0.x <= p2.x) ? -1 : 1;
+    const side2 = -side0;
+
+    // 2 circular windows on Lobe 0
+    blobs.push({
+        name: 'Окно 1 (Крайнее)',
+        x: round2(p0.x + side0 * 0.095),
+        y: round2(p0.y - 0.015),
+        z: 0.14,
+        radius: round3(p0.radius * rand(0.45, 0.50)),
+        type: 3,
+        greenRatio: 0.0,
+        animAmp: p0.animAmp,
+        animPhase: p0.animPhase
+    });
+    blobs.push({
+        name: 'Окно 2 (Внутреннее)',
+        x: round2(p0.x - side0 * 0.145),
+        y: round2(p0.y - 0.005),
+        z: 0.14,
+        radius: round3(p0.radius * rand(0.43, 0.48)),
+        type: 3,
+        greenRatio: 0.0,
+        animAmp: p0.animAmp,
+        animPhase: p0.animPhase
+    });
+
+    // 4 circular windows distributed across Lobes 2 & 3
+    blobs.push({
+        name: 'Окно 3 (Перешеек)',
+        x: round2(p2.x - side2 * 0.175),
+        y: round2(p2.y - 0.115),
+        z: 0.14,
+        radius: round3(rand(0.062, 0.075)),
+        type: 3,
+        greenRatio: 0.0,
+        animAmp: p2.animAmp,
+        animPhase: p2.animPhase
+    });
+    blobs.push({
+        name: 'Окно 4 (Центральное малое)',
+        x: round2(p3.x - side2 * 0.045),
+        y: round2(p3.y + 0.015),
+        z: 0.15,
+        radius: round3(rand(0.068, 0.082)),
+        type: 3,
+        greenRatio: 0.0,
+        animAmp: p3.animAmp,
+        animPhase: p3.animPhase
+    });
+    blobs.push({
+        name: 'Окно 5 (Большое верхнее)',
+        x: round2(p2.x + side2 * 0.14),
+        y: round2(p2.y + 0.055),
+        z: 0.14,
+        radius: round3(p2.radius * rand(0.48, 0.54)),
+        type: 3,
+        greenRatio: 0.0,
+        animAmp: p2.animAmp,
+        animPhase: p2.animPhase
+    });
+    blobs.push({
+        name: 'Окно 6 (Нижнее)',
+        x: round2(p3.x + side2 * 0.12),
+        y: round2(p3.y - 0.105),
+        z: 0.14,
+        radius: round3(p3.radius * rand(0.36, 0.42)),
+        type: 3,
+        greenRatio: 0.0,
+        animAmp: p3.animAmp,
+        animPhase: p3.animPhase
+    });
+
     return blobs;
-}
+};
