@@ -75,7 +75,12 @@ class MotionBlobStudio {
         this.compareMode = false;
         this.hoveredBlobIndex = -1;
         this.draggingBlobIndex = -1;
+        this.isPanningCamera = false;
         this.dragOffset = { x: 0, y: 0 };
+
+        // Undo / Redo History Stack
+        this.undoStack = [];
+        this.redoStack = [];
 
         // FPS Counter
         this.frameCount = 0;
@@ -212,6 +217,86 @@ class MotionBlobStudio {
         this._toastTimer = setTimeout(() => {
             toast.classList.remove('visible');
         }, 2200);
+    }
+
+    pushHistory() {
+        const snap = JSON.stringify({
+            aspect: this.aspect,
+            params: this.params,
+            blobs: this.blobs,
+            selectedBlobIndex: this.selectedBlobIndex,
+            textConfig: this.textConfig,
+            hudConfig: this.hudConfig
+        });
+        if (this.undoStack.length > 0 && this.undoStack[this.undoStack.length - 1] === snap) {
+            return;
+        }
+        this.undoStack.push(snap);
+        if (this.undoStack.length > 40) this.undoStack.shift();
+        this.redoStack = [];
+        this.updateHistoryButtons();
+    }
+
+    restoreSnapshot(snapStr) {
+        try {
+            const data = JSON.parse(snapStr);
+            this.params = data.params;
+            this.blobs = data.blobs;
+            this.selectedBlobIndex = Math.min(data.selectedBlobIndex || 0, Math.max(0, this.blobs.length - 1));
+            if (data.textConfig) this.textConfig = data.textConfig;
+            if (data.hudConfig) this.hudConfig = data.hudConfig;
+            if (data.aspect && data.aspect !== this.aspect) {
+                this.setAspectRatio(data.aspect);
+            }
+            this.trackerNodes = [];
+            this.typographyDirty = true;
+            this.syncUIFromState();
+            this.renderBlobList();
+            this.syncSelectedBlobUI();
+            this.updateTypographyTextures();
+            this.updateHistoryButtons();
+        } catch (err) {
+            console.error('History restore error:', err);
+        }
+    }
+
+    undo() {
+        if (this.undoStack.length === 0) return;
+        const currentSnap = JSON.stringify({
+            aspect: this.aspect,
+            params: this.params,
+            blobs: this.blobs,
+            selectedBlobIndex: this.selectedBlobIndex,
+            textConfig: this.textConfig,
+            hudConfig: this.hudConfig
+        });
+        this.redoStack.push(currentSnap);
+        const prevSnap = this.undoStack.pop();
+        this.restoreSnapshot(prevSnap);
+        this.showToast('↩ Отменено действие');
+    }
+
+    redo() {
+        if (this.redoStack.length === 0) return;
+        const currentSnap = JSON.stringify({
+            aspect: this.aspect,
+            params: this.params,
+            blobs: this.blobs,
+            selectedBlobIndex: this.selectedBlobIndex,
+            textConfig: this.textConfig,
+            hudConfig: this.hudConfig
+        });
+        this.undoStack.push(currentSnap);
+        const nextSnap = this.redoStack.pop();
+        this.restoreSnapshot(nextSnap);
+        this.showToast('↪ Возвращено действие');
+    }
+
+    updateHistoryButtons() {
+        const btnUndo = document.getElementById('btnUndo');
+        const btnRedo = document.getElementById('btnRedo');
+        if (btnUndo) btnUndo.disabled = (this.undoStack.length === 0);
+        if (btnRedo) btnRedo.disabled = (this.redoStack.length === 0);
     }
 
     // Automatically computes a rich deep shadow color from any chosen core hex color
@@ -959,7 +1044,7 @@ class MotionBlobStudio {
             const b = this.blobs[i];
             const animPos = this.getAnimatedBlobPosJS(b, i);
             const pt = this.worldToScreen(animPos.x, animPos.y, animPos.z);
-            const screenRad = b.radius * (0.5 * h) * pt.perspective * (this.params.camZoom || 1.0);
+            const screenRad = Math.max(b.radius * (0.5 * h) * pt.perspective * (this.params.camZoom || 1.0), 12);
 
             const isSelected = (i === this.selectedBlobIndex);
             const isHovered = (i === this.hoveredBlobIndex);
@@ -967,46 +1052,75 @@ class MotionBlobStudio {
 
             ctx.save();
 
-            // Outer radius wireframe guide when selected or hovered
+            // Outer radius wireframe guide + cardinal ticks when selected or hovered
             if (isSelected || isHovered) {
                 ctx.beginPath();
-                ctx.arc(pt.x, pt.y, Math.max(screenRad, 10), 0, Math.PI * 2);
+                ctx.arc(pt.x, pt.y, screenRad, 0, Math.PI * 2);
                 ctx.strokeStyle = typeMeta.color;
-                ctx.lineWidth = isSelected ? 2.0 : 1.2;
-                ctx.setLineDash(b.type === 3 ? [5, 5] : [8, 4]);
-                ctx.globalAlpha = isSelected ? 0.75 : 0.45;
+                ctx.lineWidth = isSelected ? 1.8 : 1.1;
+                ctx.setLineDash(b.type === 3 ? [4, 5] : [7, 5]);
+                ctx.globalAlpha = isSelected ? 0.72 : 0.42;
                 ctx.stroke();
                 ctx.setLineDash([]);
+
+                // 4 Cardinal micro-ticks on selected ring
+                if (isSelected) {
+                    ctx.globalAlpha = 0.85;
+                    ctx.lineWidth = 1.6;
+                    for (let k = 0; k < 4; k++) {
+                        const ang = k * Math.PI * 0.5;
+                        const c = Math.cos(ang);
+                        const s = Math.sin(ang);
+                        ctx.beginPath();
+                        ctx.moveTo(pt.x + c * (screenRad - 5), pt.y + s * (screenRad - 5));
+                        ctx.lineTo(pt.x + c * (screenRad + 5), pt.y + s * (screenRad + 5));
+                        ctx.stroke();
+                    }
+                }
             }
 
-            // Center interactive handle
-            ctx.globalAlpha = 0.92;
+            // Center precision target handle
+            const handleR = isSelected ? 8.5 : (isHovered ? 7.5 : 5.5);
+            ctx.globalAlpha = isSelected || isHovered ? 0.96 : 0.72;
             ctx.beginPath();
-            ctx.arc(pt.x, pt.y, isSelected ? 9 : 6.5, 0, Math.PI * 2);
-            ctx.fillStyle = isSelected ? typeMeta.color : '#101510';
+            ctx.arc(pt.x, pt.y, handleR, 0, Math.PI * 2);
+            ctx.fillStyle = isSelected ? typeMeta.color : 'rgba(8, 10, 14, 0.85)';
             ctx.fill();
-            ctx.lineWidth = 2;
+            ctx.lineWidth = isSelected ? 2.2 : 1.6;
             ctx.strokeStyle = typeMeta.color;
             ctx.stroke();
 
-            // Label pill when hovered or selected
-            if (isSelected || isHovered) {
-                ctx.font = '600 12px Inter, sans-serif';
-                const label = `${b.name}`;
-                const tw = ctx.measureText(label).width;
-                const px = pt.x - tw * 0.5 - 7;
-                const py = pt.y - 28;
-
-                ctx.fillStyle = 'rgba(8, 12, 8, 0.85)';
+            // Inner dot for unselected nodes
+            if (!isSelected) {
                 ctx.beginPath();
-                ctx.roundRect(px, py, tw + 14, 20, 4);
+                ctx.arc(pt.x, pt.y, 2.0, 0, Math.PI * 2);
+                ctx.fillStyle = typeMeta.color;
+                ctx.fill();
+            }
+
+            // Sleek Studio 2.0 pill badge when hovered or selected
+            if (isSelected || isHovered) {
+                ctx.font = '600 11.5px "Inter", sans-serif';
+                const label = `${b.name} · ${b.radius.toFixed(2)}`;
+                const tw = ctx.measureText(label).width;
+                const padX = 8;
+                const pillW = tw + padX * 2;
+                const pillH = 21;
+                const px = pt.x - pillW * 0.5;
+                const py = pt.y - handleR - pillH - 7;
+
+                ctx.fillStyle = 'rgba(10, 12, 16, 0.88)';
+                ctx.beginPath();
+                ctx.roundRect(px, py, pillW, pillH, 6);
                 ctx.fill();
                 ctx.strokeStyle = typeMeta.color;
                 ctx.lineWidth = 1;
+                ctx.globalAlpha = 0.85;
                 ctx.stroke();
 
-                ctx.fillStyle = '#ffffff';
-                ctx.fillText(label, px + 7, py + 14);
+                ctx.globalAlpha = 1.0;
+                ctx.fillStyle = '#f4f6fa';
+                ctx.fillText(label, px + padX, py + 14.5);
             }
 
             ctx.restore();
@@ -1101,13 +1215,31 @@ class MotionBlobStudio {
 
         canvas.addEventListener('mousedown', (e) => {
             const m = getCanvasMouse(e);
-            const hit = findHitBlob(m.x, m.y);
+            const hit = (!e.altKey && e.button === 0) ? findHitBlob(m.x, m.y) : -1;
             if (hit !== -1) {
+                this.pushHistory();
                 this.selectedBlobIndex = hit;
                 this.draggingBlobIndex = hit;
                 this.lastMouse = m;
                 this.renderBlobList();
                 this.syncSelectedBlobUI();
+            } else if (e.button === 0 || e.button === 1) {
+                this.isPanningCamera = true;
+                this.lastMouse = m;
+                canvas.style.cursor = 'grabbing';
+            }
+        });
+
+        canvas.addEventListener('dblclick', (e) => {
+            const m = getCanvasMouse(e);
+            const hit = findHitBlob(m.x, m.y);
+            if (hit === -1) {
+                this.params.camPanX = 0.0;
+                this.params.camPanY = 0.0;
+                this.params.camZoom = 1.0;
+                this.syncUIFromState();
+                this.typographyDirty = true;
+                this.showToast('Вид камеры центрирован');
             }
         });
 
@@ -1122,6 +1254,15 @@ class MotionBlobStudio {
                 b.y = Number((b.y + delta.wy).toFixed(3));
                 this.lastMouse = m;
                 this.syncSelectedBlobUI();
+            } else if (this.isPanningCamera) {
+                const dx = m.x - this.lastMouse.x;
+                const dy = m.y - this.lastMouse.y;
+                const h = canvas.height || 1080;
+                const zoom = this.params.camZoom || 1.0;
+                this.params.camPanX = Number(((this.params.camPanX || 0) + (dx / (0.5 * h * zoom))).toFixed(3));
+                this.params.camPanY = Number(((this.params.camPanY || 0) - (dy / (0.5 * h * zoom))).toFixed(3));
+                this.lastMouse = m;
+                this.typographyDirty = true;
             } else {
                 this.hoveredBlobIndex = findHitBlob(m.x, m.y);
                 canvas.style.cursor = (this.hoveredBlobIndex !== -1) ? 'grab' : 'crosshair';
@@ -1130,15 +1271,23 @@ class MotionBlobStudio {
 
         window.addEventListener('mouseup', () => {
             this.draggingBlobIndex = -1;
+            this.isPanningCamera = false;
         });
 
-        // Mouse wheel over a blob scales its radius smoothly
+        // Mouse wheel: Alt/Cmd/Ctrl + Wheel zooms camera; normal wheel over a blob scales its radius
         canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
             const m = getCanvasMouse(e);
             const hit = findHitBlob(m.x, m.y);
+            if (e.altKey || e.metaKey || e.ctrlKey || hit === -1) {
+                const zoomDelta = -e.deltaY * 0.0008;
+                this.params.camZoom = Number(Math.min(1.60, Math.max(0.60, (this.params.camZoom || 1.0) + zoomDelta)).toFixed(2));
+                this.syncUIFromState();
+                this.typographyDirty = true;
+                return;
+            }
             const targetIdx = (hit !== -1) ? hit : this.selectedBlobIndex;
             if (targetIdx >= 0 && targetIdx < this.blobs.length) {
-                e.preventDefault();
                 const b = this.blobs[targetIdx];
                 const delta = -e.deltaY * 0.0003;
                 b.radius = Number(Math.min(0.50, Math.max(0.02, b.radius + delta)).toFixed(3));
@@ -1296,14 +1445,22 @@ class MotionBlobStudio {
     }
 
     bindUI() {
+        // Undo / Redo Buttons
+        const btnUndo = document.getElementById('btnUndo');
+        const btnRedo = document.getElementById('btnRedo');
+        if (btnUndo) btnUndo.addEventListener('click', () => this.undo());
+        if (btnRedo) btnRedo.addEventListener('click', () => this.redo());
+
         // Preset & Aspect Controls
         document.getElementById('presetSelect').addEventListener('change', (e) => {
+            this.pushHistory();
             this.loadPreset(e.target.value);
             this.showToast(`Сцена: ${e.target.options[e.target.selectedIndex].text}`);
         });
 
         document.querySelectorAll('#presetCardGrid .preset-chip').forEach(chip => {
             chip.addEventListener('click', () => {
+                this.pushHistory();
                 const presetId = chip.dataset.preset;
                 this.loadPreset(presetId);
                 const label = chip.querySelector('strong') ? chip.querySelector('strong').textContent : presetId;
@@ -1356,6 +1513,7 @@ class MotionBlobStudio {
         }
 
         const triggerRandomize = () => {
+            this.pushHistory();
             this.blobs = generateRandomComposition();
             this.selectedBlobIndex = 0;
             this.trackerNodes = [];
@@ -1409,9 +1567,10 @@ class MotionBlobStudio {
         // Add / Duplicate / Delete Blobs
         const addBlob = (type, defaultRad, namePrefix) => {
             if (this.blobs.length >= 16) {
-                alert('Достигнут максимум 16 узлов для сохранения 60 FPS.');
+                this.showToast('Достигнут максимум 16 узлов (60 FPS)');
                 return;
             }
+            this.pushHistory();
             this.blobs.push({
                 name: `${namePrefix} ${this.blobs.length + 1}`,
                 x: Number(((Math.random() - 0.5) * 0.35).toFixed(2)),
@@ -1436,6 +1595,7 @@ class MotionBlobStudio {
             if (this.blobs.length >= 16) return;
             const src = this.blobs[this.selectedBlobIndex];
             if (!src) return;
+            this.pushHistory();
             const copy = JSON.parse(JSON.stringify(src));
             copy.name = `${src.name} (Копия)`;
             copy.x = Number((copy.x + 0.08).toFixed(2));
@@ -1448,6 +1608,7 @@ class MotionBlobStudio {
 
         document.getElementById('btnDeleteBlob').addEventListener('click', () => {
             if (this.blobs.length <= 1) return;
+            this.pushHistory();
             this.blobs.splice(this.selectedBlobIndex, 1);
             this.selectedBlobIndex = Math.max(0, this.selectedBlobIndex - 1);
             this.renderBlobList();
@@ -1591,12 +1752,16 @@ class MotionBlobStudio {
             this.updateTypographyTextures();
         });
 
-        // Update slider progress fill on any range input and reset on double-click
+        // Update slider progress fill on any range input, record history on mousedown, and reset on double-click
         document.querySelectorAll('input[type="range"]').forEach(slider => {
             this.updateSliderFill(slider);
+            if (slider.id !== 'timelineScrubber') {
+                slider.addEventListener('mousedown', () => this.pushHistory());
+            }
             slider.addEventListener('input', () => this.updateSliderFill(slider));
             if (slider.dataset.default !== undefined) {
                 slider.addEventListener('dblclick', () => {
+                    this.pushHistory();
                     slider.value = slider.dataset.default;
                     slider.dispatchEvent(new Event('input', { bubbles: true }));
                     this.showToast('Ползунок сброшен к стандарту');
@@ -1604,9 +1769,49 @@ class MotionBlobStudio {
             }
         });
 
-        // Global Keyboard Shortcuts (Space = Play/Pause, R = Randomize, Tab = Zen Mode, G = Gizmos, H = HUD)
+        // Interactive horizontal drag-scrubbing on .scrub-meta labels (Blender/Spline style)
+        document.querySelectorAll('.scrub-row').forEach(row => {
+            const meta = row.querySelector('.scrub-meta');
+            const slider = row.querySelector('input[type="range"]');
+            if (!meta || !slider) return;
+            meta.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                this.pushHistory();
+                const startX = e.clientX;
+                const startVal = parseFloat(slider.value) || 0;
+                const min = parseFloat(slider.min) || 0;
+                const max = parseFloat(slider.max) || 1;
+                const span = max - min || 1;
+                const onMove = (me) => {
+                    const mult = me.shiftKey ? 0.2 : 1.0;
+                    const dx = (me.clientX - startX) * mult;
+                    const nextVal = Math.min(max, Math.max(min, startVal + (dx / 160) * span));
+                    slider.value = nextVal;
+                    slider.dispatchEvent(new Event('input', { bubbles: true }));
+                };
+                const onUp = () => {
+                    window.removeEventListener('mousemove', onMove);
+                    window.removeEventListener('mouseup', onUp);
+                };
+                window.addEventListener('mousemove', onMove);
+                window.addEventListener('mouseup', onUp);
+            });
+        });
+
+        // Global Keyboard Shortcuts (Space = Play/Pause, R = Randomize, Tab = Zen Mode, G = Gizmos, H = HUD, Cmd+Z = Undo/Redo)
         window.addEventListener('keydown', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+            if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ') {
+                e.preventDefault();
+                if (e.shiftKey) this.redo();
+                else this.undo();
+                return;
+            }
+            if ((e.metaKey || e.ctrlKey) && e.code === 'KeyY') {
+                e.preventDefault();
+                this.redo();
+                return;
+            }
             if (e.code === 'Space') {
                 e.preventDefault();
                 document.getElementById('btnPlayPause').click();
@@ -1622,6 +1827,9 @@ class MotionBlobStudio {
             } else if (e.code === 'KeyH' && !e.metaKey && !e.ctrlKey) {
                 e.preventDefault();
                 document.getElementById('btnToggleHud').click();
+            } else if (e.code === 'Backspace' || e.code === 'Delete') {
+                e.preventDefault();
+                document.getElementById('btnDeleteBlob').click();
             }
         });
 

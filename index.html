@@ -24,6 +24,19 @@
 
                 <!-- Center Viewport Controls Island -->
                 <div class="island-group center-island">
+                    <button id="btnUndo" class="island-btn icon-only" title="Отменить действие (Cmd+Z)" disabled>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+                        </svg>
+                    </button>
+                    <button id="btnRedo" class="island-btn icon-only" title="Повторить действие (Cmd+Shift+Z)" disabled>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
+                        </svg>
+                    </button>
+
+                    <div class="island-divider"></div>
+
                     <!-- Aspect Ratio Segmented Control -->
                     <div class="seg-control" id="aspectBtnGroup" title="Формат кадра">
                         <button type="button" class="seg-item active" data-aspect="9:16">9:16</button>

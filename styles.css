@@ -379,6 +379,11 @@ html, body {
     padding: 5px 7px;
 }
 
+.island-btn:disabled {
+    opacity: 0.3;
+    pointer-events: none;
+}
+
 .island-btn:hover {
     background: rgba(255, 255, 255, 0.065);
     color: var(--text-primary);
@@ -1248,6 +1253,11 @@ input.studio-input {
     gap: 4px;
     font-size: 10px;
     color: var(--text-secondary);
+    cursor: ew-resize;
+}
+
+.scrub-meta:hover {
+    color: var(--text-primary);
 }
 
 .scrub-meta .mono-val {
