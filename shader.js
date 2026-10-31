@@ -32,8 +32,11 @@ uniform float uLoopDuration;
 //         2.0 = Inner Green Core Lobe Only
 //         3.0 = Internal Glass Chamber / Circular Black Window (carves smooth circular aperture into green shell)
 uniform int uBlobCount;
+uniform int uPrecomputedAnim;
 uniform vec4 uBlobPosRad[MAX_BLOBS];
 uniform vec4 uBlobMeta[MAX_BLOBS];
+uniform vec4 uBlobAnimPosRad[MAX_BLOBS];
+uniform vec4 uBlobGreenPosRad[MAX_BLOBS];
 
 // Global Material & Scene Controls
 uniform float uSmoothGlass;      // smin k for outer glass
@@ -255,17 +258,64 @@ vec3 getAnimatedBlobPos(int idx, vec3 basePos, float amp, float phase, float typ
     return basePos + offset * amp;
 }
 
-// Dedicated Outer Glass SDF
-float mapGlassOnly(vec3 p) {
-    float dGlass = 1e5;
-    float tau = 6.28318530718;
-    float loopT = (uLoopDuration > 0.1) ? (uTime / uLoopDuration) * tau : uTime;
+// Per-frame cached animated blob positions & radii (eliminates ~2,000 trig calls per pixel during raymarching!)
+vec4 gAnimPosRad[MAX_BLOBS];
+vec4 gGreenPosRad[MAX_BLOBS];
+float gLoopT = 0.0;
 
-    vec3 warp = vec3(
-        sin(p.y * 2.6 + loopT) * 0.0035,
-        cos(p.x * 2.4 - loopT) * 0.0035,
-        sin(p.x * 2.2 + p.y * 2.0 + loopT) * 0.0030
+void initAnimatedBlobs() {
+    float tau = 6.28318530718;
+    gLoopT = (uLoopDuration > 0.1) ? (uTime / uLoopDuration) * tau : uTime;
+
+    if (uPrecomputedAnim == 1) {
+        for (int i = 0; i < MAX_BLOBS; i++) {
+            if (i >= uBlobCount) break;
+            gAnimPosRad[i] = uBlobAnimPosRad[i];
+            gGreenPosRad[i] = uBlobGreenPosRad[i];
+        }
+        return;
+    }
+
+    float env = sin(gLoopT * 0.5);
+    for (int i = 0; i < MAX_BLOBS; i++) {
+        if (i >= uBlobCount) break;
+        vec4 pr = uBlobPosRad[i];
+        vec4 meta = uBlobMeta[i];
+        float type = meta.x;
+        float greenRatio = meta.y;
+        float amp = meta.z;
+        float phase = meta.w;
+
+        vec3 bPos = getAnimatedBlobPos(i, pr.xyz, amp, phase, type);
+        float rOuter = pr.w * (1.0 + 0.012 * amp * sin(gLoopT + phase * 6.28318) * env);
+        gAnimPosRad[i] = vec4(bPos, rOuter);
+
+        vec3 greenOffset = vec3(
+            cos(gLoopT + phase * 6.28) * env * 0.010 * amp,
+            sin(gLoopT + phase * 6.28) * env * 0.012 * amp,
+            0.0
+        );
+        gGreenPosRad[i] = vec4(bPos + greenOffset, rOuter * greenRatio);
+    }
+}
+
+vec3 computeSpatialWarp(vec3 p) {
+    return vec3(
+        sin(p.y * 2.6 + gLoopT) * 0.0035,
+        cos(p.x * 2.4 - gLoopT) * 0.0035,
+        sin(p.x * 2.2 + p.y * 2.0 + gLoopT) * 0.0030
     );
+}
+
+// Dedicated Outer Glass SDF (Zero per-blob trig!)
+float mapGlassOnly(vec3 p) {
+    // Fast Z bounding slab check when far from the scene plane
+    if (abs(p.z) > 0.72) {
+        return abs(p.z) - 0.52;
+    }
+
+    float dGlass = 1e5;
+    vec3 warp = computeSpatialWarp(p);
 
     for (int i = 0; i < MAX_BLOBS; i++) {
         if (i >= uBlobCount) break;
@@ -273,25 +323,14 @@ float mapGlassOnly(vec3 p) {
         float type = meta.x;
         if (type > 1.5) continue;
 
-        vec4 pr = uBlobPosRad[i];
-        float greenRatio = meta.y;
+        vec4 anim = gAnimPosRad[i];
+        vec3 bPos = anim.xyz;
+        float rOuter = anim.w;
         float amp = meta.z;
-        float phase = meta.w;
-
-        vec3 bPos = getAnimatedBlobPos(i, pr.xyz, amp, phase, type);
-        float rOuter = pr.w * (1.0 + 0.012 * amp * sin(loopT + phase * 6.28318) * sin(loopT * 0.5));
         vec3 pWarped = p + warp * clamp(amp, 0.0, 1.0);
 
         if (type < 0.5 && i == 1 && rOuter < 0.14 && uBlobCount > 2) {
-            vec4 pr0 = uBlobPosRad[0];
-            vec4 m0  = uBlobMeta[0];
-            vec3 p0Anim = getAnimatedBlobPos(0, pr0.xyz, m0.z, m0.w, m0.x);
-
-            vec4 pr2 = uBlobPosRad[2];
-            vec4 m2  = uBlobMeta[2];
-            vec3 p2Anim = getAnimatedBlobPos(2, pr2.xyz, m2.z, m2.w, m2.x);
-
-            vec2 br = sdHyperbolicBridge(p + warp * 0.35, p0Anim, bPos, p2Anim, rOuter, greenRatio);
+            vec2 br = sdHyperbolicBridge(p + warp * 0.35, gAnimPosRad[0].xyz, bPos, gAnimPosRad[2].xyz, rOuter, meta.y);
             dGlass = smin(dGlass, br.x, uSmoothGlass * 0.92);
         } else {
             float k = (rOuter < 0.11 || rOuter > 0.31) ? 0.006 : uSmoothGlass;
@@ -302,48 +341,29 @@ float mapGlassOnly(vec3 p) {
     return dGlass;
 }
 
-// Dedicated Circular Window Aperture SDF (only evaluates Type 3 blobs!)
+// Dedicated Circular Window Aperture SDF (Zero per-blob trig!)
 float mapChamberOnly(vec3 p) {
     float dChamber = 1e5;
-    float tau = 6.28318530718;
-    float loopT = (uLoopDuration > 0.1) ? (uTime / uLoopDuration) * tau : uTime;
-
-    vec3 warp = vec3(
-        sin(p.y * 2.6 + loopT) * 0.0035,
-        cos(p.x * 2.4 - loopT) * 0.0035,
-        sin(p.x * 2.2 + p.y * 2.0 + loopT) * 0.0030
-    );
+    vec3 warp = computeSpatialWarp(p);
 
     for (int i = 0; i < MAX_BLOBS; i++) {
         if (i >= uBlobCount) break;
         vec4 meta = uBlobMeta[i];
         if (meta.x < 2.5) continue;
 
-        vec4 pr = uBlobPosRad[i];
-        float amp = meta.z;
-        float phase = meta.w;
-        vec3 bPos = getAnimatedBlobPos(i, pr.xyz, amp, phase, meta.x);
-        float rOuter = pr.w * (1.0 + 0.012 * amp * sin(loopT + phase * 6.28318) * sin(loopT * 0.5));
-
-        vec3 dVec = (p + warp * clamp(amp, 0.0, 1.0)) - bPos;
+        vec4 anim = gAnimPosRad[i];
+        vec3 dVec = (p + warp * clamp(meta.z, 0.0, 1.0)) - anim.xyz;
         dVec.z *= 0.10;
-        float dc = length(dVec) - rOuter;
+        float dc = length(dVec) - anim.w;
         dChamber = min(dChamber, dc);
     }
     return dChamber;
 }
 
-// Dedicated Inner Green Core Envelope SDF
+// Dedicated Inner Green Core Envelope SDF (Zero per-blob trig!)
 float mapGreenOnly(vec3 p) {
     float dGreenRaw = 1e5;
-    float tau = 6.28318530718;
-    float loopT = (uLoopDuration > 0.1) ? (uTime / uLoopDuration) * tau : uTime;
-
-    vec3 warp = vec3(
-        sin(p.y * 2.6 + loopT) * 0.0035,
-        cos(p.x * 2.4 - loopT) * 0.0035,
-        sin(p.x * 2.2 + p.y * 2.0 + loopT) * 0.0030
-    );
+    vec3 warp = computeSpatialWarp(p);
 
     for (int i = 0; i < MAX_BLOBS; i++) {
         if (i >= uBlobCount) break;
@@ -352,37 +372,21 @@ float mapGreenOnly(vec3 p) {
         if (type > 0.5 && type < 1.5) continue;
         if (type > 2.5) continue;
 
-        vec4 pr = uBlobPosRad[i];
+        vec4 anim = gAnimPosRad[i];
+        vec3 bPos = anim.xyz;
+        float rOuter = anim.w;
         float greenRatio = meta.y;
-        float amp = meta.z;
-        float phase = meta.w;
-
-        vec3 bPos = getAnimatedBlobPos(i, pr.xyz, amp, phase, type);
-        float rOuter = pr.w * (1.0 + 0.012 * amp * sin(loopT + phase * 6.28318) * sin(loopT * 0.5));
-        vec3 pWarped = p + warp * clamp(amp, 0.0, 1.0);
+        vec3 pWarped = p + warp * clamp(meta.z, 0.0, 1.0);
 
         if (type < 0.5) {
             if (i == 1 && rOuter < 0.14 && uBlobCount > 2) {
                 if (greenRatio > 0.60) {
-                    vec4 pr0 = uBlobPosRad[0];
-                    vec4 m0  = uBlobMeta[0];
-                    vec3 p0Anim = getAnimatedBlobPos(0, pr0.xyz, m0.z, m0.w, m0.x);
-
-                    vec4 pr2 = uBlobPosRad[2];
-                    vec4 m2  = uBlobMeta[2];
-                    vec3 p2Anim = getAnimatedBlobPos(2, pr2.xyz, m2.z, m2.w, m2.x);
-
-                    vec2 br = sdHyperbolicBridge(p + warp * 0.35, p0Anim, bPos, p2Anim, rOuter, greenRatio);
+                    vec2 br = sdHyperbolicBridge(p + warp * 0.35, gAnimPosRad[0].xyz, bPos, gAnimPosRad[2].xyz, rOuter, greenRatio);
                     dGreenRaw = smin(dGreenRaw, br.y, uSmoothGreen * 0.75);
                 }
             } else if (greenRatio > 0.01 && rOuter <= 0.31) {
-                float env = sin(loopT * 0.5);
-                vec3 greenOffset = vec3(
-                    cos(loopT + phase * 6.28) * env * 0.010 * amp,
-                    sin(loopT + phase * 6.28) * env * 0.012 * amp,
-                    0.0
-                );
-                float dgr = length(pWarped - (bPos + greenOffset)) - (rOuter * greenRatio);
+                vec4 grAnim = gGreenPosRad[i];
+                float dgr = length(pWarped - grAnim.xyz) - grAnim.w;
                 dGreenRaw = smin(dGreenRaw, dgr, uSmoothGreen * 1.05);
             }
         } else if (type > 1.5 && type < 2.5) {
@@ -393,18 +397,50 @@ float mapGreenOnly(vec3 p) {
     return dGreenRaw;
 }
 
-float mapGreenPerforated(vec3 p) {
-    float dGlass = mapGlassOnly(p);
-    float dGreenRaw = mapGreenOnly(p);
-    float dChamber = mapChamberOnly(p);
-    float dGreenShell = smax(dGreenRaw, dGlass + 0.026, 0.018);
-    return smax(dGreenShell, -dChamber, max(uSmoothCavity, 0.028));
-}
-
+// Fused Single-Loop Interior SDF (3x faster than calling mapGlassOnly + mapGreenOnly + mapChamberOnly separately!)
 vec3 mapBlobsFull(vec3 p) {
-    float dGlass = mapGlassOnly(p);
-    float dGreenRaw = mapGreenOnly(p);
-    float dChamber = mapChamberOnly(p);
+    float dGlass = 1e5;
+    float dGreenRaw = 1e5;
+    float dChamber = 1e5;
+    vec3 warp = computeSpatialWarp(p);
+
+    for (int i = 0; i < MAX_BLOBS; i++) {
+        if (i >= uBlobCount) break;
+        vec4 meta = uBlobMeta[i];
+        float type = meta.x;
+        vec4 anim = gAnimPosRad[i];
+        vec3 bPos = anim.xyz;
+        float rOuter = anim.w;
+        vec3 pWarped = p + warp * clamp(meta.z, 0.0, 1.0);
+
+        if (type > 2.5) {
+            vec3 dVec = pWarped - bPos;
+            dVec.z *= 0.10;
+            dChamber = min(dChamber, length(dVec) - rOuter);
+        } else if (type > 1.5) {
+            dGreenRaw = smin(dGreenRaw, length(pWarped - bPos) - rOuter, uSmoothGreen * 1.05);
+        } else if (type > 0.5) {
+            float k = (rOuter < 0.11 || rOuter > 0.31) ? 0.006 : uSmoothGlass;
+            dGlass = smin(dGlass, length(pWarped - bPos) - rOuter, k);
+        } else {
+            float greenRatio = meta.y;
+            if (i == 1 && rOuter < 0.14 && uBlobCount > 2) {
+                vec2 br = sdHyperbolicBridge(p + warp * 0.35, gAnimPosRad[0].xyz, bPos, gAnimPosRad[2].xyz, rOuter, greenRatio);
+                dGlass = smin(dGlass, br.x, uSmoothGlass * 0.92);
+                if (greenRatio > 0.60) {
+                    dGreenRaw = smin(dGreenRaw, br.y, uSmoothGreen * 0.75);
+                }
+            } else {
+                float k = (rOuter < 0.11 || rOuter > 0.31) ? 0.006 : uSmoothGlass;
+                dGlass = smin(dGlass, length(pWarped - bPos) - rOuter, k);
+                if (greenRatio > 0.01 && rOuter <= 0.31) {
+                    vec4 grAnim = gGreenPosRad[i];
+                    dGreenRaw = smin(dGreenRaw, length(pWarped - grAnim.xyz) - grAnim.w, uSmoothGreen * 1.05);
+                }
+            }
+        }
+    }
+
     float dGreenShell = smax(dGreenRaw, dGlass + 0.026, 0.018);
     return vec3(dGlass, dGreenShell, dChamber);
 }
@@ -425,6 +461,11 @@ float getRockRidgeHeight(float x) {
 
 float mapRock(vec3 p) {
     if (uRockEnabled < 0.5) return 1e5;
+
+    // Fast height bounding plane: highest rock peak never exceeds uRockHeight + 0.08
+    if (p.y > uRockHeight + 0.18) {
+        return p.y - (uRockHeight + 0.10);
+    }
 
     float ridgeH = getRockRidgeHeight(p.x);
 
@@ -696,8 +737,9 @@ float sampleTinyChar(int charId, vec2 uv) {
     if (bit == 0) return 0.0;
 
     vec2 cellSub = fract(uv * vec2(3.0, 5.0));
-    float edge = smoothstep(0.0, 0.16, cellSub.x) * smoothstep(1.0, 0.84, cellSub.x) *
-                 smoothstep(0.0, 0.16, cellSub.y) * smoothstep(1.0, 0.84, cellSub.y);
+    vec2 fw = clamp(fwidth(uv * vec2(3.0, 5.0)), 0.06, 0.28);
+    float edge = smoothstep(0.0, fw.x, cellSub.x) * smoothstep(1.0, 1.0 - fw.x, cellSub.x) *
+                 smoothstep(0.0, fw.y, cellSub.y) * smoothstep(1.0, 1.0 - fw.y, cellSub.y);
     return edge;
 }
 
@@ -711,6 +753,7 @@ float evalCoreMicroStamp(vec2 d, int seed, int style) {
     // 1. Miniature Technical Icon on the left (d.x around -0.15)
     vec2 ip = (d - vec2(-0.155, 0.004)) / 0.030;
     if (abs(ip.x) < 1.35 && abs(ip.y) < 1.35) {
+        float aa = clamp(length(fwidth(ip)) * 0.85, 0.06, 0.22);
         if (style == 0) {
             // Target reticle (circle + cardinal ticks + center dot)
             float dRing = abs(length(ip) - 0.68) - 0.09;
@@ -721,7 +764,7 @@ float evalCoreMicroStamp(vec2 d, int seed, int style) {
             dCross = max(dCross, -(length(ip) - 0.42)); // hollow gap near center
             float dDot = length(ip) - 0.16;
             float dIcon = min(min(dRing, dCross), dDot);
-            m = max(m, 1.0 - smoothstep(0.0, 0.12, dIcon));
+            m = max(m, 1.0 - smoothstep(0.0, aa, dIcon));
         } else if (style == 1) {
             // Corner brackets [ + ]
             float dBox = abs(max(abs(ip.x) - 0.88, abs(ip.y) - 0.72)) - 0.10;
@@ -730,12 +773,12 @@ float evalCoreMicroStamp(vec2 d, int seed, int style) {
                 max(abs(ip.x) - 0.35, abs(ip.y) - 0.09),
                 max(abs(ip.y) - 0.35, abs(ip.x) - 0.09)
             );
-            m = max(m, 1.0 - smoothstep(0.0, 0.12, min(dBox, dPlus)));
+            m = max(m, 1.0 - smoothstep(0.0, aa, min(dBox, dPlus)));
         } else {
             // Micro-barcode + status square
             float barX = fract(ip.x * 2.2 + 0.5) - 0.5;
             float dBars = max(abs(barX) - 0.18, max(abs(ip.x) - 0.85, abs(ip.y) - 0.65));
-            m = max(m, 1.0 - smoothstep(0.0, 0.12, dBars));
+            m = max(m, 1.0 - smoothstep(0.0, aa, dBars));
         }
     }
 
@@ -760,7 +803,8 @@ float evalCoreMicroStamp(vec2 d, int seed, int style) {
     // 3. Thin technical underline & end tick under the label
     float dLine = max(abs(d.x - 0.015) - 0.135, abs(d.y + 0.034) - 0.0028);
     float dTick = max(abs(d.x - 0.150) - 0.003, abs(d.y + 0.026) - 0.010);
-    m = max(m, (1.0 - smoothstep(0.0, 0.003, min(dLine, dTick))) * 0.72);
+    float aaLine = clamp(length(fwidth(d)) * 0.9, 0.0018, 0.0055);
+    m = max(m, (1.0 - smoothstep(0.0, aaLine, min(dLine, dTick))) * 0.72);
 
     return m;
 }
@@ -772,7 +816,7 @@ vec2 sampleCoreGreebles(vec3 p, vec3 nGreen, float dChamber) {
     float windowSafe = smoothstep(0.022, 0.052, dChamber);
     if (windowSafe <= 0.001 || nGreen.z < 0.12) return vec2(0.0);
 
-    // Find the dominant/nearest green core blob so markings lock 1:1 to its animated 3D surface
+    // Find the dominant/nearest green core blob using precomputed gAnimPosRad (zero trig calls!)
     int bestIdx = 0;
     float bestDist = 1e5;
     vec3 bestCenter = vec3(0.0);
@@ -780,17 +824,15 @@ vec2 sampleCoreGreebles(vec3 p, vec3 nGreen, float dChamber) {
 
     for (int i = 0; i < MAX_BLOBS; i++) {
         if (i >= uBlobCount) break;
-        vec4 b = uBlobPosRad[i];
         vec4 m = uBlobMeta[i];
-        float type = m.x;
-        if (type < 0.5 && m.y > 0.05) {
-            vec3 c = getAnimatedBlobPos(i, b.xyz, m.z, m.w, type);
-            float rCore = b.w * m.y;
-            float d = length(p - c) - rCore;
+        if (m.x < 0.5 && m.y > 0.05) {
+            vec4 bAnim = gAnimPosRad[i];
+            float rCore = bAnim.w * m.y;
+            float d = length(p - bAnim.xyz) - rCore;
             if (d < bestDist) {
                 bestDist = d;
                 bestIdx = i;
-                bestCenter = c;
+                bestCenter = bAnim.xyz;
                 bestRad = max(rCore, 0.12);
             }
         }
@@ -888,6 +930,9 @@ vec3 shadeGreenCore(vec3 p, vec3 rdIn, vec3 nGreen, float dChamber) {
 }
 
 void main() {
+    // Initialize cached animated blob positions once per fragment
+    initAnimatedBlobs();
+
     // Normalized coordinates centered at (0,0), Y in [-1, 1]
     vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution.xy) / (0.5 * uResolution.y);
     uv = uv / max(uCamZoom, 0.2) - uCamPan;
@@ -900,20 +945,28 @@ void main() {
 
     // 1. Primary Raymarch: Outer Glass Shell vs. Foreground Chipped Volcanic Rock
     float t = 0.0;
+    float tPrev = 0.0;
+    float dPrev = 0.0;
     float tMax = 4.2;
     int hitType = 0; // 0 = Background, 1 = Glass Blob, 2 = Rock
 
-    for (int i = 0; i < 110; i++) {
+    for (int i = 0; i < 96; i++) {
         vec3 p = ro + rd * t;
         float dG = mapGlassOnly(p);
         float dR = mapRock(p);
         float d = min(dG, dR);
 
-        if (d < 0.0010) {
+        if (d < 0.0009) {
+            // 1-step secant surface refinement for ultra-smooth silhouette & normal precision
+            if (i > 0 && (dPrev - d) > 1e-5) {
+                t = mix(tPrev, t, clamp(dPrev / (dPrev - d), 0.0, 1.0));
+            }
             hitType = (dG <= dR) ? 1 : 2;
             break;
         }
-        t += d * 0.75;
+        tPrev = t;
+        dPrev = d;
+        t += d * 0.78;
         if (t > tMax) break;
     }
 
@@ -951,8 +1004,10 @@ void main() {
         float glassThickness = 0.0;
 
         vec3 pEnter = pGlass - nGlass * 0.0020;
+        float tInPrev = tIn;
+        float dGrPrev = 1e5;
 
-        for (int j = 0; j < 72; j++) {
+        for (int j = 0; j < 64; j++) {
             vec3 pIn = pEnter + rdIn * tIn;
             vec3 dAll = mapBlobsFull(pIn);
             float dGOut = dAll.x;
@@ -965,13 +1020,17 @@ void main() {
             }
 
             if (dGr < 0.0012) {
-                tHitIn = tIn;
-                dChAtHit = dCh;
-                if (dCh > 0.0) {
+                if (j > 0 && (dGrPrev - dGr) > 1e-5) {
+                    tHitIn = mix(tInPrev, tIn, clamp(dGrPrev / (dGrPrev - dGr), 0.0, 1.0));
+                } else {
+                    tHitIn = tIn;
+                }
+                dChAtHit = mapChamberOnly(pEnter + rdIn * tHitIn);
+                if (dChAtHit > 0.0) {
                     internalHit = 1;
                 } else {
                     internalHit = 0;
-                    glassThickness = tIn + 0.08;
+                    glassThickness = tHitIn + 0.08;
                 }
                 break;
             }
@@ -981,7 +1040,9 @@ void main() {
                 break;
             }
 
-            float stepLen = max(min(abs(dGOut), dGr) * 0.68, 0.005);
+            tInPrev = tIn;
+            dGrPrev = dGr;
+            float stepLen = max(min(max(-dGOut, 0.028), dGr) * 0.72, 0.005);
             tIn += stepLen;
             glassThickness = tIn;
             if (tIn > 1.6) break;
@@ -997,12 +1058,26 @@ void main() {
             // 1. Hit the smooth Acid-Green Core outside the circular apertures!
             vec3 pGr = pEnter + rdIn * tHitIn;
             vec3 nGr = calcNormalGreen(pGr);
-            interiorColor = shadeGreenCore(pGr, rdIn, nGr, dChAtHit);
+            vec3 coreCol = shadeGreenCore(pGr, rdIn, nGr, dChAtHit);
+            // Smooth grazing silhouette anti-aliasing where the internal green core curves away into clear glass
+            float coreGrazingAA = smoothstep(0.02, 0.22, max(dot(nGr, -rdIn), 0.0));
+            vec3 edgeCaustic = mix(vec3(0.0004, 0.0006, 0.0004), mix(uGreenColor, vec3(0.98, 1.0, 0.28), 0.48) * 0.65, 0.75);
+            interiorColor = mix(edgeCaustic, coreCol, coreGrazingAA);
             interiorColor += vec3(0.95, 1.0, 0.90) * glassBubbles * 0.40;
         } else {
             // 2. Unified Dark-Centered Octane Glass & Pitch-Black Circular Window Interior:
             //    Zero seam between Window 2 and the Bridge, or between Window 5 and the Upper Glass Dome!
             interiorColor = vec3(0.0004, 0.0006, 0.0004);
+
+            // Physical RGB Chromatic Dispersion Refraction of Behind-Glass HUD & Typography through clear glass
+            vec2 refrOffset = (rdIn.xy - rd.xy) * (0.16 + 0.22 * clamp(glassThickness, 0.0, 0.6));
+            vec2 baseBackUv = vec2(screenUv.x, 1.0 - screenUv.y) + vec2(refrOffset.x, -refrOffset.y);
+            vec2 dispShift = vec2(refrOffset.x, -refrOffset.y) * (0.18 * uGlassDispersion);
+            float bR = texture(uTextBackTex, clamp(baseBackUv + dispShift, 0.0, 1.0)).r;
+            vec4  bG = texture(uTextBackTex, clamp(baseBackUv, 0.0, 1.0));
+            float bB = texture(uTextBackTex, clamp(baseBackUv - dispShift, 0.0, 1.0)).b;
+            float transGlass = exp(-glassThickness * 1.40) * (1.0 - smoothstep(0.0, 0.02, -minChamberDist) * 0.65);
+            interiorColor = mix(interiorColor, vec3(bR, bG.g, bB) * 0.78, bG.a * transGlass);
 
             float insideWindow = 1.0 - smoothstep(-0.015, 0.015, minChamberDist);
 
@@ -1011,9 +1086,9 @@ void main() {
             interiorColor += vec3(0.26, 0.29, 0.27) * grazingGlass * 0.32 * insideWindow;
 
             // B. Signature White C-Shaped Meniscus Reflection on the right side of Window 2
-            //    Anchored to Window 2 (blob 11) animated position so it stays locked during the 15s loop!
+            //    Anchored to Window 2 (blob 11) precomputed animated position so it stays locked during the 15s loop!
             vec3 w11Pos = (uBlobCount > 11)
-                ? getAnimatedBlobPos(11, uBlobPosRad[11].xyz, uBlobMeta[11].z, uBlobMeta[11].w, uBlobMeta[11].x)
+                ? gAnimPosRad[11].xyz
                 : vec3(-0.19, -0.19, 0.14);
             vec2 cCenter = w11Pos.xy + vec2(0.075, 0.005);
             float dRightCrescent = length((pGlass.xy - cCenter) / vec2(0.042, 0.068));

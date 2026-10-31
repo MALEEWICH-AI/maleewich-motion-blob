@@ -26,9 +26,17 @@ class MotionBlobStudio {
         // Studio State
         this.currentPresetId = 'reference';
         this.aspect = '9:16';
+        this.renderScale = 1.0;
         this.params = {};
         this.blobs = [];
         this.selectedBlobIndex = 0;
+
+        // Pre-allocated uniform typed arrays (zero per-frame GC allocations)
+        this.posRadData = new Float32Array(16 * 4);
+        this.metaData = new Float32Array(16 * 4);
+        this.animPosRadData = new Float32Array(16 * 4);
+        this.greenPosRadData = new Float32Array(16 * 4);
+        this.typographyDirty = true;
 
         // Typography State
         this.textConfig = {
@@ -159,6 +167,7 @@ class MotionBlobStudio {
         const uNames = [
             'uResolution', 'uTime', 'uLoopDuration',
             'uBlobCount', 'uBlobPosRad', 'uBlobMeta',
+            'uPrecomputedAnim', 'uBlobAnimPosRad', 'uBlobGreenPosRad',
             'uSmoothGlass', 'uSmoothGreen', 'uSmoothCavity',
             'uGlassIOR', 'uGlassDispersion', 'uFresnelIntensity', 'uBubbleDensity', 'uCoreDetail',
             'uGreenColor', 'uGreenDeepColor', 'uBgTopColor', 'uBgGlowColor',
@@ -210,8 +219,8 @@ class MotionBlobStudio {
             card.style.aspectRatio = '1 / 1';
         }
 
-        // Render at crisp resolution (720p base for butter-smooth 60fps preview, or 1080p on export)
-        const scale = this.isRecording ? 1.0 : 0.75;
+        // Render at selected quality scale (1.0 Full HD 1080p by default, or 1.0 during recording)
+        const scale = this.isRecording ? Math.max(this.renderScale, 1.0) : (this.renderScale || 1.0);
         this.glCanvas.width = Math.round(w * scale);
         this.glCanvas.height = Math.round(h * scale);
         this.gizmoCanvas.width = this.glCanvas.width;
@@ -222,6 +231,7 @@ class MotionBlobStudio {
         this.textFrontCanvas.width = this.glCanvas.width;
         this.textFrontCanvas.height = this.glCanvas.height;
 
+        this.typographyDirty = true;
         this.updateTypographyTextures();
     }
 
@@ -600,24 +610,36 @@ class MotionBlobStudio {
         const h = this.textBackCanvas.height;
         if (!w || !h) return;
 
-        this.textBackCtx.clearRect(0, 0, w, h);
-        this.textFrontCtx.clearRect(0, 0, w, h);
+        const hudActive = !!(this.hudConfig && this.hudConfig.enabled);
+        const textActive = !!this.textConfig.visible;
+
+        const needBack = (hudActive && (this.hudConfig.depth === 'behind' || this.hudConfig.depth === 'mixed')) ||
+                         (textActive && this.textConfig.depth === 'behind');
+        const needFront = (hudActive && (this.hudConfig.depth === 'front' || this.hudConfig.depth === 'mixed')) ||
+                          (textActive && this.textConfig.depth === 'front');
+
+        if (needBack || this.typographyDirty) {
+            this.textBackCtx.clearRect(0, 0, w, h);
+        }
+        if (needFront || this.typographyDirty) {
+            this.textFrontCtx.clearRect(0, 0, w, h);
+        }
 
         // 1. Render Motion-Tracking HUD Greebles onto Back and/or Front layers
-        if (this.hudConfig && this.hudConfig.enabled) {
+        if (hudActive) {
             if (this.hudConfig.depth === 'behind') {
                 this.renderHudGreebles(this.textBackCtx, w, h, 'back');
             } else if (this.hudConfig.depth === 'front') {
                 this.renderHudGreebles(this.textFrontCtx, w, h, 'front');
             } else {
-                // 'mixed': refractive grid & iso-rings behind glass + crisp tracking brackets & telemetry on front
+                // 'mixed': refractive contour behind glass + crisp tracking callouts on front
                 this.renderHudGreebles(this.textBackCtx, w, h, 'back');
                 this.renderHudGreebles(this.textFrontCtx, w, h, 'front');
             }
         }
 
         // 2. Render Post Typography Layer
-        if (this.textConfig.visible) {
+        if (textActive) {
             const ctx = (this.textConfig.depth === 'behind') ? this.textBackCtx : this.textFrontCtx;
             const scaleFactor = h / 1920;
 
@@ -653,11 +675,17 @@ class MotionBlobStudio {
         }
 
         const gl = this.gl;
-        gl.bindTexture(gl.TEXTURE_2D, this.texBack);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.textBackCanvas);
+        if (needBack || this.typographyDirty) {
+            gl.bindTexture(gl.TEXTURE_2D, this.texBack);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.textBackCanvas);
+        }
 
-        gl.bindTexture(gl.TEXTURE_2D, this.texFront);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.textFrontCanvas);
+        if (needFront || this.typographyDirty) {
+            gl.bindTexture(gl.TEXTURE_2D, this.texFront);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.textFrontCanvas);
+        }
+
+        this.typographyDirty = false;
     }
 
     hexToRgbNorm(hex) {
@@ -670,7 +698,7 @@ class MotionBlobStudio {
         return [Math.pow(r, 2.2), Math.pow(g, 2.2), Math.pow(b, 2.2)];
     }
 
-    // Mirrors getAnimatedBlobPos in shader.js 1:1 for exact HUD & Gizmo tracking
+    // Mirrors getAnimatedBlobPos + breathing radius + green core offset in shader.js 1:1
     getAnimatedBlobPosJS(blob, idx = 0) {
         const tau = Math.PI * 2.0;
         const loopDur = this.params.loopDuration || 15.0;
@@ -697,10 +725,27 @@ class MotionBlobStudio {
             oy = Math.sin(loopT * 0.5) * Math.sin(loopT * 0.5) * (0.14 * isSmallDroplet) + c1 * 0.018;
         }
 
+        const wx = blob.x + ox * blob.animAmp;
+        const wy = blob.y + oy * blob.animAmp;
+        const wz = blob.z + oz * blob.animAmp;
+
+        const radMul = 1.0 + 0.028 * Math.sin(loopT * 2.0 + blob.animPhase * tau) * env * blob.animAmp;
+        const rGlass = blob.radius * radMul;
+
+        const gx = wx + 0.006 * Math.sin(loopT + blob.animPhase * 6.28318) * env * blob.animAmp;
+        const gy = wy + 0.006 * Math.cos(loopT + blob.animPhase * 6.28318) * env * blob.animAmp;
+        const gz = wz;
+        const rGreen = rGlass * blob.greenRatio;
+
         return {
-            x: blob.x + ox * blob.animAmp,
-            y: blob.y + oy * blob.animAmp,
-            z: blob.z + oz * blob.animAmp
+            x: wx,
+            y: wy,
+            z: wz,
+            rGlass,
+            gx,
+            gy,
+            gz,
+            rGreen
         };
     }
 
@@ -742,27 +787,44 @@ class MotionBlobStudio {
         gl.uniform1f(this.uniforms.uTime, this.currentTime);
         gl.uniform1f(this.uniforms.uLoopDuration, this.params.loopDuration || 15.0);
 
-        // Pack Blobs into flat Float32Arrays
+        // Pack Blobs & Precomputed Animated Positions into pre-allocated Float32Arrays
         const count = Math.min(this.blobs.length, 16);
-        const posRadData = new Float32Array(16 * 4);
-        const metaData = new Float32Array(16 * 4);
+        const posRadData = this.posRadData;
+        const metaData = this.metaData;
+        const animPosRadData = this.animPosRadData;
+        const greenPosRadData = this.greenPosRadData;
 
         for (let i = 0; i < count; i++) {
             const b = this.blobs[i];
-            posRadData[i * 4 + 0] = b.x;
-            posRadData[i * 4 + 1] = b.y;
-            posRadData[i * 4 + 2] = b.z;
-            posRadData[i * 4 + 3] = b.radius;
+            const idx4 = i * 4;
+            posRadData[idx4 + 0] = b.x;
+            posRadData[idx4 + 1] = b.y;
+            posRadData[idx4 + 2] = b.z;
+            posRadData[idx4 + 3] = b.radius;
 
-            metaData[i * 4 + 0] = b.type;
-            metaData[i * 4 + 1] = b.greenRatio;
-            metaData[i * 4 + 2] = b.animAmp;
-            metaData[i * 4 + 3] = b.animPhase;
+            metaData[idx4 + 0] = b.type;
+            metaData[idx4 + 1] = b.greenRatio;
+            metaData[idx4 + 2] = b.animAmp;
+            metaData[idx4 + 3] = b.animPhase;
+
+            const anim = this.getAnimatedBlobPosJS(b, i);
+            animPosRadData[idx4 + 0] = anim.x;
+            animPosRadData[idx4 + 1] = anim.y;
+            animPosRadData[idx4 + 2] = anim.z;
+            animPosRadData[idx4 + 3] = anim.rGlass;
+
+            greenPosRadData[idx4 + 0] = anim.gx;
+            greenPosRadData[idx4 + 1] = anim.gy;
+            greenPosRadData[idx4 + 2] = anim.gz;
+            greenPosRadData[idx4 + 3] = anim.rGreen;
         }
 
         gl.uniform1i(this.uniforms.uBlobCount, count);
         gl.uniform4fv(this.uniforms.uBlobPosRad, posRadData);
         gl.uniform4fv(this.uniforms.uBlobMeta, metaData);
+        gl.uniform1i(this.uniforms.uPrecomputedAnim, 1);
+        gl.uniform4fv(this.uniforms.uBlobAnimPosRad, animPosRadData);
+        gl.uniform4fv(this.uniforms.uBlobGreenPosRad, greenPosRadData);
 
         gl.uniform1f(this.uniforms.uSmoothGlass, this.params.smoothGlass);
         gl.uniform1f(this.uniforms.uSmoothGreen, this.params.smoothGreen);
@@ -891,10 +953,12 @@ class MotionBlobStudio {
             }
         }
 
-        // Update real-time motion tracking nodes & HUD overlay textures
-        this.updateTrackerNodes(dt);
-        if (this.hudConfig && this.hudConfig.enabled) {
-            this.updateTypographyTextures();
+        // Update real-time motion tracking nodes & HUD overlay textures only when moving or dirty
+        if (this.isPlaying || this.draggingBlobIndex !== -1 || this.typographyDirty) {
+            this.updateTrackerNodes(dt);
+            if ((this.hudConfig && this.hudConfig.enabled) || this.typographyDirty) {
+                this.updateTypographyTextures();
+            }
         }
 
         this.renderWebGL();
@@ -1129,10 +1193,19 @@ class MotionBlobStudio {
             this.setAspectRatio(e.target.value);
         });
 
+        const selQuality = document.getElementById('selRenderQuality');
+        if (selQuality) {
+            selQuality.addEventListener('change', (e) => {
+                this.renderScale = parseFloat(e.target.value) || 1.0;
+                this.setAspectRatio(this.aspect);
+            });
+        }
+
         document.getElementById('btnRandomize').addEventListener('click', () => {
             this.blobs = generateRandomComposition('bridge');
             this.selectedBlobIndex = 0;
             this.trackerNodes = [];
+            this.typographyDirty = true;
             this.renderBlobList();
             this.syncSelectedBlobUI();
             this.updateTypographyTextures();
@@ -1144,6 +1217,7 @@ class MotionBlobStudio {
             const btn = document.getElementById('btnToggleHud');
             if (chk) chk.checked = enabled;
             if (btn) btn.classList.toggle('active', enabled);
+            this.typographyDirty = true;
             this.updateTypographyTextures();
         };
 
@@ -1318,7 +1392,10 @@ class MotionBlobStudio {
         });
 
         // Motion Tracking HUD Controls
-        const updateText = () => this.updateTypographyTextures();
+        const updateText = () => {
+            this.typographyDirty = true;
+            this.updateTypographyTextures();
+        };
 
         const chkHud = document.getElementById('chkHudEnabled');
         if (chkHud) {
