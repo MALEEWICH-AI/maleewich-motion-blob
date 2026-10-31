@@ -8,7 +8,7 @@ class MotionBlobStudio {
 
         this.gl = this.glCanvas.getContext('webgl2', {
             antialias: false,
-            preserveDrawingBuffer: true,
+            preserveDrawingBuffer: false,
             powerPreference: 'high-performance'
         });
 
@@ -781,11 +781,11 @@ class MotionBlobStudio {
 
         const hudActive = !!(this.hudConfig && this.hudConfig.enabled);
         const textActive = !!this.textConfig.visible;
-        const bakeFrontHudToTex = this.isRecording || forExport;
+        const bakeHudToTex = this.isRecording || forExport;
 
-        const needBack = (hudActive && (this.hudConfig.depth === 'behind' || this.hudConfig.depth === 'mixed')) ||
+        const needBack = (hudActive && (this.hudConfig.depth === 'behind' || (bakeHudToTex && this.hudConfig.depth === 'mixed'))) ||
                          (textActive && this.textConfig.depth === 'behind');
-        const needFront = (bakeFrontHudToTex && hudActive && (this.hudConfig.depth === 'front' || this.hudConfig.depth === 'mixed')) ||
+        const needFront = (bakeHudToTex && hudActive && (this.hudConfig.depth === 'front' || this.hudConfig.depth === 'mixed')) ||
                           (textActive && this.textConfig.depth === 'front');
 
         if (needBack || this.typographyDirty) {
@@ -796,20 +796,18 @@ class MotionBlobStudio {
         }
 
         // 1. Render Motion-Tracking HUD Greebles onto Back and/or Front layers
-        //    During interactive preview (!bakeFrontHudToTex), front HUD is drawn directly on gizmoCanvas (0 gl.texImage2D uploads!)
+        //    During interactive preview (!bakeHudToTex), 'front' and 'mixed' HUD are drawn directly on gizmoCanvas (0 gl.texImage2D uploads!)
         if (hudActive) {
             if (this.hudConfig.depth === 'behind') {
                 this.renderHudGreebles(this.textBackCtx, w, h, 'back');
             } else if (this.hudConfig.depth === 'front') {
-                if (bakeFrontHudToTex) {
+                if (bakeHudToTex) {
                     this.renderHudGreebles(this.textFrontCtx, w, h, 'front');
                 }
-            } else {
-                // 'mixed': refractive contour behind glass + crisp tracking callouts on front
+            } else if (bakeHudToTex) {
+                // 'mixed' during export/recording: refractive contour behind glass + crisp tracking callouts on front
                 this.renderHudGreebles(this.textBackCtx, w, h, 'back');
-                if (bakeFrontHudToTex) {
-                    this.renderHudGreebles(this.textFrontCtx, w, h, 'front');
-                }
+                this.renderHudGreebles(this.textFrontCtx, w, h, 'front');
             }
         }
 
@@ -994,6 +992,15 @@ class MotionBlobStudio {
             greenPosRadData[idx4 + 3] = anim.rGreen;
         }
 
+        // Zero out inactive slots (count..15) so static 16-blob shader loops skip them cleanly
+        for (let i = count; i < 16; i++) {
+            const idx4 = i * 4;
+            posRadData[idx4 + 3] = 0.0;
+            metaData[idx4 + 0] = 9.0;
+            animPosRadData[idx4 + 3] = 0.0;
+            greenPosRadData[idx4 + 3] = 0.0;
+        }
+
         gl.uniform1i(this.uniforms.uBlobCount, count);
         gl.uniform4fv(this.uniforms.uBlobPosRad, posRadData);
         gl.uniform4fv(this.uniforms.uBlobMeta, metaData);
@@ -1048,9 +1055,14 @@ class MotionBlobStudio {
 
         if (this.isRecording) return;
 
-        // Render front HUD callouts directly onto 2D overlay canvas during interactive preview (eliminates per-frame WebGL texture upload!)
-        if (this.hudConfig && this.hudConfig.enabled && (this.hudConfig.depth === 'front' || this.hudConfig.depth === 'mixed')) {
-            this.renderHudGreebles(ctx, w, h, 'front');
+        // Render HUD callouts directly onto 2D overlay canvas during interactive preview (eliminates per-frame WebGL texture upload!)
+        if (this.hudConfig && this.hudConfig.enabled) {
+            if (this.hudConfig.depth === 'mixed') {
+                this.renderHudGreebles(ctx, w, h, 'back');
+                this.renderHudGreebles(ctx, w, h, 'front');
+            } else if (this.hudConfig.depth === 'front') {
+                this.renderHudGreebles(ctx, w, h, 'front');
+            }
         }
 
         if (!this.showGizmos) return;
@@ -1175,10 +1187,10 @@ class MotionBlobStudio {
             this.updateTrackerNodes(dt);
             const hudNeedsWebGLTex = (this.hudConfig && this.hudConfig.enabled) && (
                 this.isRecording ||
-                this.draggingBlobIndex !== -1 ||
                 (this.hudConfig.depth === 'behind' && (now - this.lastHudUploadTime >= 48))
             );
-            if (this.typographyDirty || hudNeedsWebGLTex) {
+            const canUploadDirty = this.typographyDirty && (this.isRecording || (now - this.lastHudUploadTime >= 32));
+            if (canUploadDirty || hudNeedsWebGLTex) {
                 this.lastHudUploadTime = now;
                 this.updateTypographyTextures();
             }
@@ -1269,6 +1281,9 @@ class MotionBlobStudio {
         });
 
         window.addEventListener('mousemove', (e) => {
+            if (this.draggingBlobIndex === -1 && !this.isPanningCamera && e.target !== canvas) {
+                return;
+            }
             const m = getCanvasMouse(e);
             if (this.draggingBlobIndex !== -1) {
                 const b = this.blobs[this.draggingBlobIndex];
@@ -1287,7 +1302,6 @@ class MotionBlobStudio {
                 this.params.camPanX = Number(((this.params.camPanX || 0) + (dx / (0.5 * h * zoom))).toFixed(3));
                 this.params.camPanY = Number(((this.params.camPanY || 0) - (dy / (0.5 * h * zoom))).toFixed(3));
                 this.lastMouse = m;
-                this.typographyDirty = true;
             } else {
                 this.hoveredBlobIndex = findHitBlob(m.x, m.y);
                 canvas.style.cursor = (this.hoveredBlobIndex !== -1) ? 'grab' : 'crosshair';
@@ -1307,8 +1321,13 @@ class MotionBlobStudio {
             if (e.altKey || e.metaKey || e.ctrlKey || hit === -1) {
                 const zoomDelta = -e.deltaY * 0.0008;
                 this.params.camZoom = Number(Math.min(1.60, Math.max(0.60, (this.params.camZoom || 1.0) + zoomDelta)).toFixed(2));
-                this.syncUIFromState();
-                this.typographyDirty = true;
+                const rngZoom = document.getElementById('rngCamZoom');
+                const valZoom = document.getElementById('valCamZoom');
+                if (rngZoom) {
+                    rngZoom.value = this.params.camZoom;
+                    this.updateSliderFill(rngZoom);
+                }
+                if (valZoom) valZoom.textContent = this.params.camZoom.toFixed(2);
                 return;
             }
             const targetIdx = (hit !== -1) ? hit : this.selectedBlobIndex;
@@ -1398,7 +1417,10 @@ class MotionBlobStudio {
 
         document.getElementById('rngBlobPhase').value = b.animPhase;
         document.getElementById('valBlobPhase').textContent = Number(b.animPhase).toFixed(2);
-        this.updateAllSliderFills();
+        const blobSliderIds = ['rngBlobRadius', 'rngBlobGreen', 'rngBlobX', 'rngBlobY', 'rngBlobZ', 'rngBlobAmp', 'rngBlobPhase'];
+        for (let i = 0; i < blobSliderIds.length; i++) {
+            this.updateSliderFill(document.getElementById(blobSliderIds[i]));
+        }
     }
 
     syncUIFromState() {
@@ -1735,7 +1757,6 @@ class MotionBlobStudio {
             document.querySelectorAll('.swatch-btn').forEach(b => b.classList.remove('active'));
             this.syncThemeAccent(this.params.greenColor);
             this.typographyDirty = true;
-            this.updateTypographyTextures();
         });
         document.getElementById('colGreenDeep').addEventListener('input', (e) => {
             this.params.greenDeepColor = e.target.value;
@@ -1754,7 +1775,6 @@ class MotionBlobStudio {
                 document.getElementById('colBgGlow').value = this.params.bgGlowColor;
                 this.syncThemeAccent(this.params.greenColor);
                 this.typographyDirty = true;
-                this.updateTypographyTextures();
             });
         });
 
@@ -1765,7 +1785,6 @@ class MotionBlobStudio {
                 document.querySelectorAll('#bgPresetGroup .bg-pill').forEach(p => p.classList.remove('active'));
                 this.syncThemeAccent(this.params.greenColor);
                 this.typographyDirty = true;
-                this.updateTypographyTextures();
             });
         }
 
@@ -1774,7 +1793,6 @@ class MotionBlobStudio {
             document.querySelectorAll('#bgPresetGroup .bg-pill').forEach(p => p.classList.remove('active'));
             this.syncThemeAccent(this.params.greenColor);
             this.typographyDirty = true;
-            this.updateTypographyTextures();
         });
 
         // Update slider progress fill on any range input, record history on mousedown, and reset on double-click
@@ -1861,7 +1879,6 @@ class MotionBlobStudio {
         // Motion Tracking HUD Controls
         const updateText = () => {
             this.typographyDirty = true;
-            this.updateTypographyTextures();
         };
 
         const chkHud = document.getElementById('chkHudEnabled');
